@@ -1,50 +1,19 @@
 import os
 import jwt
-from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
-from starlette.routing import Mount
+from mcp.server.sse import SseServerTransport
+from starlette.responses import Response
 
 load_dotenv()
 
 # Environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
-
-# Security scheme
-security = HTTPBearer(auto_error=False)
-
-
-async def verify_token(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> dict:
-    """Verify Supabase JWT token."""
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Missing authorization header")
-
-    token = credentials.credentials
-
-    if not SUPABASE_JWT_SECRET:
-        # If no secret configured, skip validation (for development)
-        return {"sub": "anonymous"}
-
-    try:
-        payload = jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
-
 
 # Create MCP server
 mcp = FastMCP("Echo Server")
@@ -80,6 +49,29 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# SSE transport for MCP
+sse_transport = SseServerTransport("/messages")
+
+
+def verify_token(token: str) -> dict[str, Any]:
+    """Verify Supabase JWT token."""
+    if not SUPABASE_JWT_SECRET:
+        # If no secret configured, skip validation (for development)
+        return {"sub": "anonymous"}
+
+    try:
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            audience="authenticated",
+        )
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
 
 @app.get("/health")
 async def health_check():
@@ -98,6 +90,31 @@ async def root():
     }
 
 
-# Mount MCP SSE endpoint
-# The MCP FastMCP handles SSE transport automatically
-app.mount("/mcp", mcp.sse_app())
+@app.get("/sse")
+async def sse_endpoint(request: Request) -> Response:
+    """SSE endpoint for MCP client connections."""
+    # Optional: verify auth token from query param or header
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        try:
+            verify_token(token)
+        except HTTPException:
+            pass  # Allow unauthenticated for now during development
+
+    async with sse_transport.connect_sse(
+        request.scope, request.receive, request._send
+    ) as streams:
+        await mcp._mcp_server.run(
+            streams[0], streams[1], mcp._mcp_server.create_initialization_options()
+        )
+
+    return Response()
+
+
+@app.post("/messages")
+async def messages_endpoint(request: Request) -> Response:
+    """Handle MCP messages via POST."""
+    return await sse_transport.handle_post_message(
+        request.scope, request.receive, request._send
+    )
