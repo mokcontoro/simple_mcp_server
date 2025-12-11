@@ -100,7 +100,11 @@ LOGIN_PAGE = """
                  cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }}
         button:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }}
         .error {{ background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 20px; }}
+        .success {{ background: #e6ffed; color: #22863a; padding: 12px; border-radius: 8px; margin-bottom: 20px; }}
         .info {{ background: #f0f4ff; color: #4a5568; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }}
+        .signup-link {{ text-align: center; margin-top: 20px; color: #666; }}
+        .signup-link a {{ color: #667eea; text-decoration: none; font-weight: 500; }}
+        .signup-link a:hover {{ text-decoration: underline; }}
     </style>
 </head>
 <body>
@@ -108,6 +112,7 @@ LOGIN_PAGE = """
         <h1>Sign In</h1>
         <p>Sign in to authorize ChatGPT access</p>
         {error}
+        {success}
         <div class="info">ChatGPT is requesting access to Echo Server tools.</div>
         <form method="POST" action="/login">
             <input type="hidden" name="session" value="{session}">
@@ -121,6 +126,69 @@ LOGIN_PAGE = """
             </div>
             <button type="submit">Sign In</button>
         </form>
+        <div class="signup-link">
+            Don't have an account? <a href="/signup?session={session}">Sign up</a>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+SIGNUP_PAGE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sign Up - MCP Server</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+               min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }}
+        .container {{ background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                     width: 100%; max-width: 400px; }}
+        h1 {{ margin: 0 0 10px; color: #333; font-size: 24px; }}
+        p {{ color: #666; margin: 0 0 30px; }}
+        .form-group {{ margin-bottom: 20px; }}
+        label {{ display: block; margin-bottom: 8px; color: #333; font-weight: 500; }}
+        input[type="email"], input[type="password"] {{
+            width: 100%; padding: 12px; border: 2px solid #e1e1e1; border-radius: 8px;
+            font-size: 16px; box-sizing: border-box; transition: border-color 0.2s; }}
+        input:focus {{ outline: none; border-color: #667eea; }}
+        button {{ width: 100%; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                 color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600;
+                 cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }}
+        button:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }}
+        .error {{ background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 20px; }}
+        .info {{ background: #f0f4ff; color: #4a5568; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }}
+        .login-link {{ text-align: center; margin-top: 20px; color: #666; }}
+        .login-link a {{ color: #667eea; text-decoration: none; font-weight: 500; }}
+        .login-link a:hover {{ text-decoration: underline; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Create Account</h1>
+        <p>Sign up to use Echo Server with ChatGPT</p>
+        {error}
+        <div class="info">Create an account to authorize ChatGPT access.</div>
+        <form method="POST" action="/signup">
+            <input type="hidden" name="session" value="{session}">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required placeholder="your@email.com">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required placeholder="Create a password" minlength="6">
+            </div>
+            <div class="form-group">
+                <label for="confirm_password">Confirm Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required placeholder="Confirm your password" minlength="6">
+            </div>
+            <button type="submit">Create Account</button>
+        </form>
+        <div class="login-link">
+            Already have an account? <a href="/login?session={session}">Sign in</a>
+        </div>
     </div>
 </body>
 </html>
@@ -290,7 +358,7 @@ async def authorize(
 
 
 @app.get("/login")
-async def login_page(session: str = ""):
+async def login_page(session: str = "", registered: str = ""):
     """Show login form."""
     if not session or session not in pending_authorizations:
         return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
@@ -301,7 +369,12 @@ async def login_page(session: str = ""):
         del pending_authorizations[session]
         return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
 
-    return HTMLResponse(LOGIN_PAGE.format(session=session, error=""))
+    # Show success message if user just registered
+    success_msg = ""
+    if registered == "1":
+        success_msg = '<div class="success">Account created successfully! Please sign in.</div>'
+
+    return HTMLResponse(LOGIN_PAGE.format(session=session, error="", success=success_msg))
 
 
 @app.post("/login")
@@ -339,10 +412,76 @@ async def login_submit(
             return RedirectResponse(url=f"/consent?session={session}", status_code=302)
         else:
             error_html = '<div class="error">Invalid email or password</div>'
-            return HTMLResponse(LOGIN_PAGE.format(session=session, error=error_html))
+            return HTMLResponse(LOGIN_PAGE.format(session=session, error=error_html, success=""))
     except Exception as e:
         error_html = f'<div class="error">Authentication failed: {str(e)}</div>'
-        return HTMLResponse(LOGIN_PAGE.format(session=session, error=error_html))
+        return HTMLResponse(LOGIN_PAGE.format(session=session, error=error_html, success=""))
+
+
+@app.get("/signup")
+async def signup_page(session: str = ""):
+    """Show signup form."""
+    if not session or session not in pending_authorizations:
+        return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
+
+    # Check if session expired
+    auth_data = pending_authorizations[session]
+    if time.time() > auth_data["expires_at"]:
+        del pending_authorizations[session]
+        return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
+
+    return HTMLResponse(SIGNUP_PAGE.format(session=session, error=""))
+
+
+@app.post("/signup")
+async def signup_submit(
+    session: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...)
+):
+    """Handle signup form submission."""
+    if not session or session not in pending_authorizations:
+        return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
+
+    auth_data = pending_authorizations[session]
+    if time.time() > auth_data["expires_at"]:
+        del pending_authorizations[session]
+        return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
+
+    # Validate passwords match
+    if password != confirm_password:
+        error_html = '<div class="error">Passwords do not match</div>'
+        return HTMLResponse(SIGNUP_PAGE.format(session=session, error=error_html))
+
+    # Validate password length
+    if len(password) < 6:
+        error_html = '<div class="error">Password must be at least 6 characters</div>'
+        return HTMLResponse(SIGNUP_PAGE.format(session=session, error=error_html))
+
+    # Create account with Supabase
+    if not supabase:
+        # Fallback: just redirect to login if Supabase not configured
+        return RedirectResponse(url=f"/login?session={session}&registered=1", status_code=302)
+
+    try:
+        response = supabase.auth.sign_up({
+            "email": email,
+            "password": password
+        })
+
+        if response.user:
+            return RedirectResponse(url=f"/login?session={session}&registered=1", status_code=302)
+        else:
+            error_html = '<div class="error">Failed to create account</div>'
+            return HTMLResponse(SIGNUP_PAGE.format(session=session, error=error_html))
+    except Exception as e:
+        error_msg = str(e)
+        if "already registered" in error_msg.lower():
+            error_html = '<div class="error">An account with this email already exists</div>'
+        else:
+            error_html = f'<div class="error">Signup failed: {error_msg}</div>'
+        return HTMLResponse(SIGNUP_PAGE.format(session=session, error=error_html))
 
 
 @app.get("/consent")
