@@ -13,19 +13,28 @@ from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
 from starlette.responses import Response
+from supabase import create_client, Client
 
 load_dotenv()
 
 # Environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 SERVER_URL = os.getenv("SERVER_URL", "https://simplemcpserver-production-e610.up.railway.app")
 JWT_SECRET = os.getenv("JWT_SECRET", SUPABASE_JWT_SECRET or secrets.token_hex(32))
+
+# Initialize Supabase client
+supabase: Client = None
+if SUPABASE_URL and SUPABASE_ANON_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 # In-memory stores (use Redis/DB in production)
 registered_clients: dict[str, dict] = {}
 authorization_codes: dict[str, dict] = {}
 access_tokens: dict[str, dict] = {}
+pending_authorizations: dict[str, dict] = {}  # session_id -> oauth params
+authenticated_sessions: dict[str, dict] = {}  # session_id -> user info
 
 # Create MCP server
 mcp = FastMCP("Echo Server")
@@ -63,6 +72,122 @@ app = FastAPI(
 
 # SSE transport for MCP
 sse_transport = SseServerTransport("/messages")
+
+
+# ============== HTML Templates ==============
+
+LOGIN_PAGE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login - MCP Server</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+               min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }}
+        .container {{ background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                     width: 100%; max-width: 400px; }}
+        h1 {{ margin: 0 0 10px; color: #333; font-size: 24px; }}
+        p {{ color: #666; margin: 0 0 30px; }}
+        .form-group {{ margin-bottom: 20px; }}
+        label {{ display: block; margin-bottom: 8px; color: #333; font-weight: 500; }}
+        input[type="email"], input[type="password"] {{
+            width: 100%; padding: 12px; border: 2px solid #e1e1e1; border-radius: 8px;
+            font-size: 16px; box-sizing: border-box; transition: border-color 0.2s; }}
+        input:focus {{ outline: none; border-color: #667eea; }}
+        button {{ width: 100%; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                 color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600;
+                 cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }}
+        button:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }}
+        .error {{ background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 20px; }}
+        .info {{ background: #f0f4ff; color: #4a5568; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sign In</h1>
+        <p>Sign in to authorize ChatGPT access</p>
+        {error}
+        <div class="info">ChatGPT is requesting access to Echo Server tools.</div>
+        <form method="POST" action="/login">
+            <input type="hidden" name="session" value="{session}">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required placeholder="your@email.com">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required placeholder="Your password">
+            </div>
+            <button type="submit">Sign In</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+CONSENT_PAGE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Authorize - MCP Server</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+               min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }}
+        .container {{ background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                     width: 100%; max-width: 450px; }}
+        h1 {{ margin: 0 0 10px; color: #333; font-size: 24px; }}
+        .app-info {{ display: flex; align-items: center; gap: 15px; padding: 20px; background: #f8f9fa;
+                    border-radius: 8px; margin: 20px 0; }}
+        .app-icon {{ width: 50px; height: 50px; background: #10a37f; border-radius: 10px;
+                    display: flex; align-items: center; justify-content: center; color: white; font-size: 24px; }}
+        .app-name {{ font-weight: 600; color: #333; }}
+        .scopes {{ margin: 20px 0; }}
+        .scope {{ display: flex; align-items: center; gap: 10px; padding: 12px; background: #f0f4ff;
+                 border-radius: 8px; margin-bottom: 10px; }}
+        .scope-icon {{ color: #667eea; }}
+        .user-info {{ color: #666; font-size: 14px; margin-bottom: 20px; }}
+        .buttons {{ display: flex; gap: 12px; }}
+        button {{ flex: 1; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }}
+        .allow {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; }}
+        .deny {{ background: white; color: #666; border: 2px solid #e1e1e1; }}
+        .allow:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }}
+        .deny:hover {{ background: #f5f5f5; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Authorize Access</h1>
+        <div class="user-info">Logged in as: {user_email}</div>
+        <div class="app-info">
+            <div class="app-icon">C</div>
+            <div>
+                <div class="app-name">ChatGPT</div>
+                <div style="color: #666; font-size: 14px;">wants to access your account</div>
+            </div>
+        </div>
+        <div class="scopes">
+            <div class="scope">
+                <span class="scope-icon">✓</span>
+                <span>Access Echo and Ping tools</span>
+            </div>
+            <div class="scope">
+                <span class="scope-icon">✓</span>
+                <span>Read basic profile information</span>
+            </div>
+        </div>
+        <form method="POST" action="/consent">
+            <input type="hidden" name="session" value="{session}">
+            <div class="buttons">
+                <button type="submit" name="action" value="deny" class="deny">Deny</button>
+                <button type="submit" name="action" value="allow" class="allow">Allow</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 
 # ============== OAuth 2.1 Endpoints ==============
@@ -143,33 +268,149 @@ async def authorize(
     code_challenge: str = "",
     code_challenge_method: str = "S256"
 ):
-    """OAuth 2.0 Authorization Endpoint."""
-    # For this simple implementation, auto-approve
-    # In production, show a login/consent page
-
+    """OAuth 2.0 Authorization Endpoint - redirects to login."""
     if response_type != "code":
         return JSONResponse({"error": "unsupported_response_type"}, status_code=400)
 
-    # Generate authorization code
-    auth_code = secrets.token_urlsafe(32)
-
-    authorization_codes[auth_code] = {
+    # Generate session ID and store OAuth params
+    session_id = secrets.token_urlsafe(32)
+    pending_authorizations[session_id] = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "scope": scope,
+        "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": code_challenge_method,
         "created_at": int(time.time()),
         "expires_at": int(time.time()) + 600  # 10 minutes
     }
 
+    # Redirect to login page
+    return RedirectResponse(url=f"/login?session={session_id}", status_code=302)
+
+
+@app.get("/login")
+async def login_page(session: str = ""):
+    """Show login form."""
+    if not session or session not in pending_authorizations:
+        return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
+
+    # Check if session expired
+    auth_data = pending_authorizations[session]
+    if time.time() > auth_data["expires_at"]:
+        del pending_authorizations[session]
+        return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
+
+    return HTMLResponse(LOGIN_PAGE.format(session=session, error=""))
+
+
+@app.post("/login")
+async def login_submit(
+    session: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...)
+):
+    """Handle login form submission."""
+    if not session or session not in pending_authorizations:
+        return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
+
+    auth_data = pending_authorizations[session]
+    if time.time() > auth_data["expires_at"]:
+        del pending_authorizations[session]
+        return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
+
+    # Authenticate with Supabase
+    if not supabase:
+        # Fallback: accept any login if Supabase not configured
+        authenticated_sessions[session] = {"email": email, "user_id": "demo-user"}
+        return RedirectResponse(url=f"/consent?session={session}", status_code=302)
+
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        if response.user:
+            authenticated_sessions[session] = {
+                "email": response.user.email,
+                "user_id": response.user.id
+            }
+            return RedirectResponse(url=f"/consent?session={session}", status_code=302)
+        else:
+            error_html = '<div class="error">Invalid email or password</div>'
+            return HTMLResponse(LOGIN_PAGE.format(session=session, error=error_html))
+    except Exception as e:
+        error_html = f'<div class="error">Authentication failed: {str(e)}</div>'
+        return HTMLResponse(LOGIN_PAGE.format(session=session, error=error_html))
+
+
+@app.get("/consent")
+async def consent_page(session: str = ""):
+    """Show consent/authorization page."""
+    if not session or session not in pending_authorizations:
+        return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
+
+    if session not in authenticated_sessions:
+        return RedirectResponse(url=f"/login?session={session}", status_code=302)
+
+    user_info = authenticated_sessions[session]
+    return HTMLResponse(CONSENT_PAGE.format(
+        session=session,
+        user_email=user_info.get("email", "Unknown")
+    ))
+
+
+@app.post("/consent")
+async def consent_submit(
+    session: str = Form(...),
+    action: str = Form(...)
+):
+    """Handle consent form submission."""
+    if not session or session not in pending_authorizations:
+        return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
+
+    auth_data = pending_authorizations[session]
+    redirect_uri = auth_data["redirect_uri"]
+    state = auth_data.get("state", "")
+
+    if action == "deny":
+        # User denied access
+        del pending_authorizations[session]
+        if session in authenticated_sessions:
+            del authenticated_sessions[session]
+
+        params = {"error": "access_denied", "error_description": "User denied access"}
+        if state:
+            params["state"] = state
+        return RedirectResponse(url=f"{redirect_uri}?{urlencode(params)}", status_code=302)
+
+    # User approved - generate authorization code
+    auth_code = secrets.token_urlsafe(32)
+    user_info = authenticated_sessions.get(session, {})
+
+    authorization_codes[auth_code] = {
+        "client_id": auth_data["client_id"],
+        "redirect_uri": auth_data["redirect_uri"],
+        "scope": auth_data["scope"],
+        "code_challenge": auth_data["code_challenge"],
+        "code_challenge_method": auth_data["code_challenge_method"],
+        "user_id": user_info.get("user_id"),
+        "user_email": user_info.get("email"),
+        "created_at": int(time.time()),
+        "expires_at": int(time.time()) + 600  # 10 minutes
+    }
+
+    # Clean up session data
+    del pending_authorizations[session]
+    if session in authenticated_sessions:
+        del authenticated_sessions[session]
+
     # Redirect back with code
     params = {"code": auth_code}
     if state:
         params["state"] = state
-
-    redirect_url = f"{redirect_uri}?{urlencode(params)}"
-    return RedirectResponse(url=redirect_url, status_code=302)
+    return RedirectResponse(url=f"{redirect_uri}?{urlencode(params)}", status_code=302)
 
 
 @app.post("/token")
@@ -226,6 +467,8 @@ async def token(
         access_tokens[access_token] = {
             "client_id": client_id,
             "scope": auth_data["scope"],
+            "user_id": auth_data.get("user_id"),
+            "user_email": auth_data.get("user_email"),
             "created_at": int(time.time()),
             "expires_at": int(time.time()) + expires_in
         }
