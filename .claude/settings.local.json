@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv:*)",
+      "Bash(D:\\dev\\simple_mcp_server\\venv\\Scripts\\pip install:*)",
+      "Bash(venv/Scripts/pip install:*)",
+      "Bash(venv/Scripts/uvicorn:*)",
+      "Bash(curl:*)",
+      "Bash(venv/Scripts/python:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(railway logs --help:*)",
+      "Bash(railway logs:*)",
+      "Bash(railway link:*)",
+      "WebSearch",
+      "WebFetch(domain:developers.openai.com)",
+      "Bash(cat:*)",
+      "Bash(cloudflared tunnel route dns:*)",
+      "WebFetch(domain:support.claude.com)",
+      "Bash(venv/Scripts/pip show:*)",
+      "Bash(venv/Scripts/pip index:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd //c \"taskkill /PID 27636 /F\")",
+      "Bash(cmd //c \"taskkill /PID 28056 /F\")",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:www.getclockwise.com)",
+      "Bash(git branch:*)",
+      "Bash(git reset:*)",
+      "Bash(dir:*)",
+      "Bash(cmd //c \"taskkill /PID 34228 /F\")",
+      "Bash(git rm:*)"
+    ]
+  }
+}
