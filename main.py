@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException, Form
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
@@ -60,7 +61,7 @@ def ping() -> str:
     Returns:
         A pong response
     """
-    return "pong"
+    return "pong from Mok's computer"
 
 
 # Create FastAPI app
@@ -70,8 +71,17 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Add CORS middleware for Claude.ai browser-based access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # SSE transport for MCP
-sse_transport = SseServerTransport("/messages")
+sse_transport = SseServerTransport("/message")
 
 
 # ============== HTML Templates ==============
@@ -656,6 +666,17 @@ def verify_access_token(token: str) -> dict[str, Any]:
     raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
+def unauthorized_response(error_description: str) -> JSONResponse:
+    """Return 401 with WWW-Authenticate header pointing to resource metadata (RFC 9728)."""
+    return JSONResponse(
+        {"error": "unauthorized", "error_description": error_description},
+        status_code=401,
+        headers={
+            "WWW-Authenticate": f'Bearer resource_metadata="{SERVER_URL}/.well-known/oauth-protected-resource"'
+        }
+    )
+
+
 # ============== MCP Endpoints ==============
 
 @app.get("/health")
@@ -682,14 +703,21 @@ async def root():
 @app.get("/sse")
 async def sse_endpoint(request: Request) -> Response:
     """SSE endpoint for MCP client connections."""
-    # Verify auth token
+    # Verify auth token - Claude.ai needs proper 401 with WWW-Authenticate header
     auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-        try:
-            verify_access_token(token)
-        except HTTPException:
-            pass  # Allow unauthenticated for development
+
+    if not auth_header.startswith("Bearer "):
+        return unauthorized_response("Missing or invalid Authorization header")
+
+    token = auth_header[7:]
+    token_data = None
+    if token in access_tokens:
+        token_data = access_tokens[token]
+        if time.time() >= token_data["expires_at"]:
+            token_data = None
+
+    if not token_data:
+        return unauthorized_response("Invalid or expired token")
 
     async with sse_transport.connect_sse(
         request.scope, request.receive, request._send
@@ -701,9 +729,38 @@ async def sse_endpoint(request: Request) -> Response:
     return Response()
 
 
-@app.post("/messages")
-async def messages_endpoint(request: Request) -> Response:
+@app.post("/message")
+async def message_endpoint(request: Request) -> Response:
     """Handle MCP messages via POST."""
+    # Verify auth token - Claude.ai needs proper 401 with WWW-Authenticate header
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header.startswith("Bearer "):
+        return unauthorized_response("Missing or invalid Authorization header")
+
+    token = auth_header[7:]
+    token_data = None
+    if token in access_tokens:
+        token_data = access_tokens[token]
+        if time.time() >= token_data["expires_at"]:
+            token_data = None
+
+    if not token_data:
+        return unauthorized_response("Invalid or expired token")
+
     return await sse_transport.handle_post_message(
         request.scope, request.receive, request._send
     )
+
+
+# Dual routes for /mcp/* paths (Claude.ai compatibility)
+@app.get("/mcp/sse")
+async def mcp_sse_endpoint(request: Request) -> Response:
+    """SSE endpoint for MCP client connections (alternative path)."""
+    return await sse_endpoint(request)
+
+
+@app.post("/mcp/message")
+async def mcp_message_endpoint(request: Request) -> Response:
+    """Handle MCP messages via POST (alternative path)."""
+    return await message_endpoint(request)
