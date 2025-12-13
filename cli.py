@@ -5,6 +5,9 @@ On first run, it opens a browser for login via Railway.
 """
 import argparse
 import os
+import shutil
+import signal
+import subprocess
 import sys
 import uvicorn
 
@@ -53,6 +56,23 @@ def print_user_debug(user_info: dict, access_token: str, refresh_token: str = ""
     print(f"    access_token: {access_token[:20]}...")
     print(f"    refresh_token: {refresh_token[:20] + '...' if refresh_token else '(none)'}")
     print()
+
+
+def check_cloudflared() -> bool:
+    """Check if cloudflared is installed and accessible."""
+    return shutil.which("cloudflared") is not None
+
+
+def run_cloudflared_tunnel(tunnel_token: str) -> subprocess.Popen:
+    """Start cloudflared tunnel in background.
+
+    Returns the subprocess.Popen object for the tunnel process.
+    """
+    return subprocess.Popen(
+        ["cloudflared", "tunnel", "run", "--token", tunnel_token],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
 
 
 def logout():
@@ -104,12 +124,49 @@ def main():
         if user_info:
             print_user_debug(user_info, config.access_token, config.refresh_token or "")
 
-    print(f"Starting local MCP server as: {config.email}")
-    print("Server running at: http://localhost:8000")
-    print("Expose via Cloudflare tunnel for remote access.\n")
+    # Check if tunnel is configured
+    if not config.has_tunnel():
+        print("[X] Tunnel not configured.")
+        print("  Please run setup again: python cli.py --logout && python cli.py")
+        sys.exit(1)
 
-    # Run the LOCAL MCP server
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    # Check if cloudflared is installed
+    if not check_cloudflared():
+        print("[X] cloudflared not found.")
+        print("  Please install cloudflared:")
+        print("  https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/")
+        sys.exit(1)
+
+    # Track tunnel process for cleanup
+    tunnel_process = None
+
+    def signal_handler(sig, frame):
+        """Handle shutdown signals gracefully."""
+        print("\nShutting down...")
+        if tunnel_process:
+            tunnel_process.terminate()
+            tunnel_process.wait()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Start cloudflared tunnel
+    print(f"Starting tunnel: {config.tunnel_url}")
+    tunnel_process = run_cloudflared_tunnel(config.tunnel_token)
+
+    print(f"Starting local MCP server as: {config.email}")
+    print(f"Server accessible at: {config.tunnel_url}")
+    print("Press Ctrl+C to stop.\n")
+
+    try:
+        # Run the LOCAL MCP server
+        uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    finally:
+        # Clean up tunnel process
+        if tunnel_process:
+            tunnel_process.terminate()
+            tunnel_process.wait()
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 """Setup flow for simple-mcp-server (browser-based login)."""
+import re
 import secrets
 import socket
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-import threading
 
-from config import save_config
+import requests
+
+from config import save_config, update_config_tunnel
 
 
 # Server URL (Railway deployment)
@@ -85,6 +87,60 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def validate_robot_name(name: str) -> tuple[bool, str]:
+    """Validate robot name format locally.
+
+    Returns (is_valid, error_message).
+    """
+    if not name:
+        return False, "Robot name is required"
+    if len(name) < 3:
+        return False, "Robot name must be at least 3 characters"
+    if len(name) > 32:
+        return False, "Robot name must be at most 32 characters"
+    if not re.match(r'^[a-z0-9]+(-[a-z0-9]+)*$', name):
+        return False, "Use only lowercase letters, numbers, and hyphens"
+    return True, ""
+
+
+def prompt_robot_name() -> str:
+    """Prompt user for robot name with validation."""
+    print("\n--- Robot Setup ---")
+    print("Enter a unique name for your robot/device.")
+    print("This will create: {name}.robotmcp.ai")
+    print("Rules: lowercase letters, numbers, hyphens (3-32 chars)\n")
+
+    while True:
+        name = input("Robot name: ").strip().lower()
+        is_valid, error = validate_robot_name(name)
+        if is_valid:
+            return name
+        print(f"  [X] {error}")
+        print()
+
+
+def create_tunnel(robot_name: str, user_id: str, access_token: str) -> dict:
+    """Call Railway API to create Cloudflare tunnel.
+
+    Returns dict with success, tunnel_token, tunnel_url, or error.
+    """
+    try:
+        response = requests.post(
+            f"{SERVER_URL}/create-tunnel",
+            data={
+                "robot_name": robot_name,
+                "user_id": user_id,
+                "access_token": access_token
+            },
+            timeout=60
+        )
+        return response.json()
+    except requests.RequestException as e:
+        return {"success": False, "error": f"Network error: {e}"}
+    except Exception as e:
+        return {"success": False, "error": f"Error: {e}"}
+
+
 def run_login_flow() -> bool:
     """Run browser-based login flow.
 
@@ -149,7 +205,30 @@ def run_login_flow() -> bool:
         print(f"    refresh_token: {refresh[:20] + '...' if refresh else '(none)'}")
         print()
 
-        return True
+        # Prompt for robot name and create tunnel
+        robot_name = prompt_robot_name()
+        print(f"\nCreating tunnel for {robot_name}.robotmcp.ai...")
+
+        tunnel_result = create_tunnel(
+            robot_name=robot_name,
+            user_id=result["user_id"],
+            access_token=result["access_token"]
+        )
+
+        if tunnel_result.get("success"):
+            update_config_tunnel(
+                robot_name=robot_name,
+                tunnel_token=tunnel_result["tunnel_token"],
+                tunnel_url=tunnel_result["tunnel_url"]
+            )
+            print(f"[OK] Tunnel created: {tunnel_result['tunnel_url']}")
+            print(f"  Tunnel token saved to config.\n")
+            return True
+        else:
+            error = tunnel_result.get("error", "Unknown error")
+            print(f"[X] Tunnel creation failed: {error}")
+            print("  You can retry by running: python cli.py --setup-tunnel")
+            return False
 
     print("\n[X] Login timed out. Please try again.")
     return False

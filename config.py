@@ -31,9 +31,25 @@ class Config:
     def refresh_token(self) -> Optional[str]:
         return self.data.get("refresh_token")
 
+    @property
+    def robot_name(self) -> Optional[str]:
+        return self.data.get("robot_name")
+
+    @property
+    def tunnel_token(self) -> Optional[str]:
+        return self.data.get("tunnel_token")
+
+    @property
+    def tunnel_url(self) -> Optional[str]:
+        return self.data.get("tunnel_url")
+
     def is_valid(self) -> bool:
         """Check if config has required fields."""
         return bool(self.user_id and self.email and self.access_token)
+
+    def has_tunnel(self) -> bool:
+        """Check if tunnel is configured."""
+        return bool(self.robot_name and self.tunnel_token)
 
 
 def load_config() -> Config:
@@ -64,6 +80,23 @@ def save_config(user_id: str, email: str, access_token: str, refresh_token: str 
         json.dump(data, f, indent=2)
 
     # Set restrictive permissions (owner read/write only)
+    os.chmod(CONFIG_FILE, 0o600)
+
+
+def update_config_tunnel(robot_name: str, tunnel_token: str, tunnel_url: str) -> None:
+    """Update existing config with tunnel information."""
+    config = load_config()
+    if not config.is_valid():
+        raise ValueError("Cannot update tunnel: no valid config exists")
+
+    data = config.data.copy()
+    data["robot_name"] = robot_name
+    data["tunnel_token"] = tunnel_token
+    data["tunnel_url"] = tunnel_url
+
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
     os.chmod(CONFIG_FILE, 0o600)
 
 

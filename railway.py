@@ -3,20 +3,26 @@
 This service is deployed to Railway and handles ONLY:
 - CLI login pages (/cli-login, /cli-signup)
 - First-run authentication during installation
+- Cloudflare tunnel creation (/create-tunnel)
 
 This is NOT involved in MCP traffic. MCP clients connect
 directly to the Local Computer's MCP server.
 """
+import base64
 import logging
 import os
+import re
+import secrets
 import time
 from urllib.parse import urlencode
+
+import httpx
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-print("=== RAILWAY.PY v1.2.0 LOADED ===", flush=True)
+print("=== RAILWAY.PY v1.3.0 LOADED ===", flush=True)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form
@@ -25,9 +31,15 @@ from supabase import create_client, Client
 
 load_dotenv()
 
-# Environment variables
+# Environment variables - Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+
+# Environment variables - Cloudflare
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_ZONE_ID = os.getenv("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_DOMAIN = "robotmcp.ai"  # Base domain for tunnel URLs
 
 # Initialize Supabase client
 supabase: Client = None
@@ -40,14 +52,16 @@ cli_sessions: dict[str, dict] = {}
 # Create FastAPI app
 app = FastAPI(
     title="Simple MCP Server - CLI Login",
-    description="Railway service for CLI installation login",
-    version="1.2.0",
+    description="Railway service for CLI installation login and tunnel creation",
+    version="1.3.0",
 )
 
 @app.on_event("startup")
 async def startup_event():
-    logger.warning("=== Railway CLI Login Service v1.2.0 starting ===")
+    logger.warning("=== Railway CLI Login Service v1.3.0 starting ===")
     logger.warning(f"Supabase configured: {bool(supabase)}")
+    cloudflare_configured = bool(CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_ZONE_ID)
+    logger.warning(f"Cloudflare configured: {cloudflare_configured}")
 
 
 # ============== HTML Templates ==============
@@ -193,9 +207,9 @@ async def root():
     """Root endpoint with service info."""
     return {
         "name": "Simple MCP Server - CLI Login",
-        "version": "1.0.0",
-        "description": "Railway service for CLI installation login",
-        "endpoints": ["/cli-login", "/cli-signup", "/health"]
+        "version": "1.3.0",
+        "description": "Railway service for CLI installation login and tunnel creation",
+        "endpoints": ["/cli-login", "/cli-signup", "/create-tunnel", "/health"]
     }
 
 
@@ -364,3 +378,152 @@ async def cli_signup_submit(
         else:
             error_html = f'<div class="error">Signup failed: {error_msg}</div>'
         return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+
+
+# ============== Cloudflare Tunnel API ==============
+
+def validate_robot_name(name: str) -> tuple[bool, str]:
+    """Validate robot name format.
+
+    Returns (is_valid, error_message).
+    """
+    if not name:
+        return False, "Robot name is required"
+    if len(name) < 3:
+        return False, "Robot name must be at least 3 characters"
+    if len(name) > 32:
+        return False, "Robot name must be at most 32 characters"
+    if not re.match(r'^[a-z0-9]+(-[a-z0-9]+)*$', name):
+        return False, "Robot name must be lowercase alphanumeric with optional hyphens"
+    return True, ""
+
+
+async def check_dns_exists(robot_name: str) -> bool:
+    """Check if DNS record already exists for robot name."""
+    if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ZONE_ID:
+        return False
+
+    url = f"https://api.cloudflare.com/client/v4/zones/{CLOUDFLARE_ZONE_ID}/dns_records"
+    headers = {
+        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    params = {"name": f"{robot_name}.{CLOUDFLARE_DOMAIN}"}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            return len(data.get("result", [])) > 0
+    return False
+
+
+async def create_cloudflare_tunnel(robot_name: str) -> dict:
+    """Create a Cloudflare tunnel and return tunnel info.
+
+    Returns dict with: tunnel_id, tunnel_token, or error.
+    """
+    if not all([CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID]):
+        return {"error": "Cloudflare not configured"}
+
+    # Generate tunnel secret (32 bytes, base64 encoded)
+    tunnel_secret = base64.b64encode(secrets.token_bytes(32)).decode()
+
+    # Create tunnel
+    tunnel_url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel"
+    headers = {
+        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    tunnel_data = {
+        "name": f"{robot_name}-tunnel",
+        "tunnel_secret": tunnel_secret
+    }
+
+    async with httpx.AsyncClient() as client:
+        # Create tunnel
+        logger.info(f"Creating tunnel for {robot_name}...")
+        response = await client.post(tunnel_url, headers=headers, json=tunnel_data)
+
+        if response.status_code not in [200, 201]:
+            error_detail = response.json().get("errors", [{}])[0].get("message", "Unknown error")
+            logger.error(f"Tunnel creation failed: {error_detail}")
+            return {"error": f"Failed to create tunnel: {error_detail}"}
+
+        tunnel_result = response.json()
+        tunnel_id = tunnel_result["result"]["id"]
+        tunnel_token = tunnel_result["result"]["token"]
+
+        logger.info(f"Tunnel created: {tunnel_id}")
+
+        # Create DNS CNAME record
+        dns_url = f"https://api.cloudflare.com/client/v4/zones/{CLOUDFLARE_ZONE_ID}/dns_records"
+        dns_data = {
+            "type": "CNAME",
+            "name": robot_name,
+            "content": f"{tunnel_id}.cfargotunnel.com",
+            "proxied": True
+        }
+
+        logger.info(f"Creating DNS record for {robot_name}.{CLOUDFLARE_DOMAIN}...")
+        dns_response = await client.post(dns_url, headers=headers, json=dns_data)
+
+        if dns_response.status_code not in [200, 201]:
+            error_detail = dns_response.json().get("errors", [{}])[0].get("message", "Unknown error")
+            logger.error(f"DNS creation failed: {error_detail}")
+            # Try to clean up the tunnel
+            await client.delete(f"{tunnel_url}/{tunnel_id}", headers=headers)
+            return {"error": f"Failed to create DNS record: {error_detail}"}
+
+        logger.info(f"DNS record created: {robot_name}.{CLOUDFLARE_DOMAIN}")
+
+        return {
+            "tunnel_id": tunnel_id,
+            "tunnel_token": tunnel_token,
+            "tunnel_url": f"https://{robot_name}.{CLOUDFLARE_DOMAIN}"
+        }
+
+
+@app.post("/create-tunnel")
+async def create_tunnel_endpoint(
+    robot_name: str = Form(...),
+    user_id: str = Form(...),
+    access_token: str = Form(...)
+):
+    """Create a Cloudflare tunnel for a robot.
+
+    Requires valid Supabase access token for authentication.
+    """
+    # Validate robot name
+    is_valid, error_msg = validate_robot_name(robot_name)
+    if not is_valid:
+        return {"success": False, "error": error_msg}
+
+    # Validate access token with Supabase
+    if supabase:
+        try:
+            user_response = supabase.auth.get_user(access_token)
+            if not user_response or not user_response.user:
+                return {"success": False, "error": "Invalid access token"}
+            if user_response.user.id != user_id:
+                return {"success": False, "error": "User ID mismatch"}
+        except Exception as e:
+            logger.error(f"Token validation failed: {e}")
+            return {"success": False, "error": "Authentication failed"}
+
+    # Check if robot name is already taken
+    if await check_dns_exists(robot_name):
+        return {"success": False, "error": f"Robot name '{robot_name}' is already taken"}
+
+    # Create tunnel
+    result = await create_cloudflare_tunnel(robot_name)
+
+    if "error" in result:
+        return {"success": False, "error": result["error"]}
+
+    return {
+        "success": True,
+        "tunnel_id": result["tunnel_id"],
+        "tunnel_token": result["tunnel_token"],
+        "tunnel_url": result["tunnel_url"]
+    }
