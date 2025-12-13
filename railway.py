@@ -223,6 +223,8 @@ async def cli_login_submit(
     user_id = None
     access_token = None
     refresh_token = None
+    name = ""
+    organization = ""
 
     if not supabase:
         # Fallback: accept any login if Supabase not configured (demo mode)
@@ -239,19 +241,18 @@ async def cli_login_submit(
                 user_id = response.user.id
                 access_token = response.session.access_token
                 refresh_token = response.session.refresh_token
+                # Extract user metadata
+                print(f"[DEBUG] user_metadata: {response.user.user_metadata}")
+                if response.user.user_metadata:
+                    name = response.user.user_metadata.get("name", "")
+                    organization = response.user.user_metadata.get("organization", "")
+                print(f"[DEBUG] Extracted - name: {name}, org: {organization}")
             else:
                 error_html = '<div class="error">Invalid email or password</div>'
                 return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
         except Exception as e:
             error_html = f'<div class="error">Authentication failed: {str(e)}</div>'
             return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
-
-    # Extract user metadata
-    name = ""
-    organization = ""
-    if supabase and response.user and response.user.user_metadata:
-        name = response.user.user_metadata.get("name", "")
-        organization = response.user.user_metadata.get("organization", "")
 
     # Clean up session
     del cli_sessions[session]
