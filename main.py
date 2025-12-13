@@ -855,7 +855,8 @@ CLI_SIGNUP_PAGE = """
         p {{ color: #666; margin: 0 0 30px; }}
         .form-group {{ margin-bottom: 20px; }}
         label {{ display: block; margin-bottom: 8px; color: #333; font-weight: 500; }}
-        input[type="email"], input[type="password"] {{
+        .optional {{ color: #999; font-weight: 400; font-size: 14px; }}
+        input[type="email"], input[type="password"], input[type="text"] {{
             width: 100%; padding: 12px; border: 2px solid #e1e1e1; border-radius: 8px;
             font-size: 16px; box-sizing: border-box; transition: border-color 0.2s; }}
         input:focus {{ outline: none; border-color: #667eea; }}
@@ -879,6 +880,14 @@ CLI_SIGNUP_PAGE = """
         <form method="POST" action="/cli-signup">
             <input type="hidden" name="session" value="{session}">
             <input type="hidden" name="port" value="{port}">
+            <div class="form-group">
+                <label for="name">Name</label>
+                <input type="text" id="name" name="name" required placeholder="Your name">
+            </div>
+            <div class="form-group">
+                <label for="organization">Organization <span class="optional">(optional)</span></label>
+                <input type="text" id="organization" name="organization" placeholder="Your organization">
+            </div>
             <div class="form-group">
                 <label for="email">Email</label>
                 <input type="email" id="email" name="email" required placeholder="your@email.com">
@@ -990,6 +999,8 @@ async def cli_signup_page(session: str = "", port: str = ""):
 async def cli_signup_submit(
     session: str = Form(...),
     port: str = Form(...),
+    name: str = Form(...),
+    organization: str = Form(""),
     email: str = Form(...),
     password: str = Form(...),
     confirm_password: str = Form(...)
@@ -1003,6 +1014,10 @@ async def cli_signup_submit(
         del cli_sessions[session]
         return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
 
+    if not name.strip():
+        error_html = '<div class="error">Name is required</div>'
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+
     if password != confirm_password:
         error_html = '<div class="error">Passwords do not match</div>'
         return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
@@ -1015,9 +1030,17 @@ async def cli_signup_submit(
         return RedirectResponse(url=f"/cli-login?session={session}&port={port}", status_code=302)
 
     try:
+        # Build user metadata
+        user_metadata = {"name": name.strip()}
+        if organization.strip():
+            user_metadata["organization"] = organization.strip()
+
         response = supabase.auth.sign_up({
             "email": email,
-            "password": password
+            "password": password,
+            "options": {
+                "data": user_metadata
+            }
         })
 
         if response.user:
