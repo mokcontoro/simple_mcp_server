@@ -44,8 +44,8 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("=== Railway CLI Login Service v1.2.0 starting ===")
-    logger.info(f"Supabase configured: {bool(supabase)}")
+    logger.warning("=== Railway CLI Login Service v1.2.0 starting ===")
+    logger.warning(f"Supabase configured: {bool(supabase)}")
 
 
 # ============== HTML Templates ==============
@@ -252,11 +252,11 @@ async def cli_login_submit(
                 access_token = response.session.access_token
                 refresh_token = response.session.refresh_token
                 # Extract user metadata
-                logger.info(f"[DEBUG] user_metadata: {response.user.user_metadata}")
+                logger.warning(f"[DEBUG] user_metadata: {response.user.user_metadata}")
                 if response.user.user_metadata:
                     name = response.user.user_metadata.get("name", "")
                     organization = response.user.user_metadata.get("organization", "")
-                logger.info(f"[DEBUG] Extracted - name: {name}, org: {organization}")
+                logger.warning(f"[DEBUG] Extracted - name: {name}, org: {organization}")
             else:
                 error_html = '<div class="error">Invalid email or password</div>'
                 return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
