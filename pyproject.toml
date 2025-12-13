@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simple-mcp-server"
-version = "0.1.0"
+version = "1.1.0"
 description = "MCP server with OAuth 2.1 and Supabase auth"
 requires-python = ">=3.10"
 dependencies = [

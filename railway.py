@@ -34,7 +34,7 @@ cli_sessions: dict[str, dict] = {}
 app = FastAPI(
     title="Simple MCP Server - CLI Login",
     description="Railway service for CLI installation login",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 
