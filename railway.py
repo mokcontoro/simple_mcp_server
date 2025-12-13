@@ -7,9 +7,14 @@ This service is deployed to Railway and handles ONLY:
 This is NOT involved in MCP traffic. MCP clients connect
 directly to the Local Computer's MCP server.
 """
+import logging
 import os
 import time
 from urllib.parse import urlencode
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form
@@ -242,11 +247,11 @@ async def cli_login_submit(
                 access_token = response.session.access_token
                 refresh_token = response.session.refresh_token
                 # Extract user metadata
-                print(f"[DEBUG] user_metadata: {response.user.user_metadata}")
+                logger.info(f"[DEBUG] user_metadata: {response.user.user_metadata}")
                 if response.user.user_metadata:
                     name = response.user.user_metadata.get("name", "")
                     organization = response.user.user_metadata.get("organization", "")
-                print(f"[DEBUG] Extracted - name: {name}, org: {organization}")
+                logger.info(f"[DEBUG] Extracted - name: {name}, org: {organization}")
             else:
                 error_html = '<div class="error">Invalid email or password</div>'
                 return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
