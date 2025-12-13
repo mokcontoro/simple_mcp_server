@@ -1,5 +1,15 @@
+"""MCP Server - Runs on Local Computer.
+
+This server runs on the user's machine (local computer or robot).
+It handles:
+- MCP tools (echo, ping)
+- MCP protocol endpoints (/sse, /message)
+- OAuth flow for MCP clients (/authorize, /login, /token)
+
+MCP clients (ChatGPT, Claude, etc.) connect directly to this server
+via Cloudflare tunnel. Railway is NOT involved in MCP traffic.
+"""
 import os
-import jwt
 import secrets
 import hashlib
 import base64
@@ -71,7 +81,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Add CORS middleware for Claude.ai browser-based access
+# Add CORS middleware for browser-based MCP client access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -120,10 +130,10 @@ LOGIN_PAGE = """
 <body>
     <div class="container">
         <h1>Sign In</h1>
-        <p>Sign in to authorize ChatGPT access</p>
+        <p>Sign in to authorize MCP client access</p>
         {error}
         {success}
-        <div class="info">ChatGPT is requesting access to Echo Server tools.</div>
+        <div class="info">MCP client is requesting access to server tools.</div>
         <form method="POST" action="/login">
             <input type="hidden" name="session" value="{session}">
             <div class="form-group">
@@ -177,9 +187,9 @@ SIGNUP_PAGE = """
 <body>
     <div class="container">
         <h1>Create Account</h1>
-        <p>Sign up to use Echo Server with ChatGPT</p>
+        <p>Sign up to use MCP server</p>
         {error}
-        <div class="info">Create an account to authorize ChatGPT access.</div>
+        <div class="info">Create an account to authorize MCP client access.</div>
         <form method="POST" action="/signup">
             <input type="hidden" name="session" value="{session}">
             <div class="form-group">
@@ -239,9 +249,9 @@ CONSENT_PAGE = """
         <h1>Authorize Access</h1>
         <div class="user-info">Logged in as: {user_email}</div>
         <div class="app-info">
-            <div class="app-icon">C</div>
+            <div class="app-icon">M</div>
             <div>
-                <div class="app-name">ChatGPT</div>
+                <div class="app-name">MCP Client</div>
                 <div style="color: #666; font-size: 14px;">wants to access your account</div>
             </div>
         </div>
@@ -703,7 +713,7 @@ async def root():
 @app.get("/sse")
 async def sse_endpoint(request: Request) -> Response:
     """SSE endpoint for MCP client connections."""
-    # Verify auth token - Claude.ai needs proper 401 with WWW-Authenticate header
+    # Verify auth token - MCP clients need proper 401 with WWW-Authenticate header
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header.startswith("Bearer "):
@@ -732,7 +742,7 @@ async def sse_endpoint(request: Request) -> Response:
 @app.post("/message")
 async def message_endpoint(request: Request) -> Response:
     """Handle MCP messages via POST."""
-    # Verify auth token - Claude.ai needs proper 401 with WWW-Authenticate header
+    # Verify auth token - MCP clients need proper 401 with WWW-Authenticate header
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header.startswith("Bearer "):
@@ -753,7 +763,7 @@ async def message_endpoint(request: Request) -> Response:
     )
 
 
-# Dual routes for /mcp/* paths (Claude.ai compatibility)
+# Dual routes for /mcp/* paths (MCP client compatibility)
 @app.get("/mcp/sse")
 async def mcp_sse_endpoint(request: Request) -> Response:
     """SSE endpoint for MCP client connections (alternative path)."""

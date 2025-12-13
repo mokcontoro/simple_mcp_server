@@ -4,6 +4,95 @@ This document tracks the development workflow for deploying MCP servers on robot
 
 ---
 
+## Entity Roles
+
+### 1. Local Computer (user's PC / robot)
+**What it is**: The user's machine that runs the MCP server
+**Runs**: `server.py` (MCP server application)
+**Responsibilities**:
+- Run the MCP server process
+- Host MCP tools (echo, ping, etc.)
+- Handle MCP protocol (`/sse`, `/message` endpoints)
+- Handle OAuth flow for MCP clients (`/authorize`, `/login`, `/token`)
+- Validate access tokens via Supabase
+- Expose to internet via Cloudflare tunnel
+
+**Does NOT**:
+- Store user credentials (delegates to Supabase)
+- Handle CLI installer login (that's Railway)
+
+### 2. Supabase
+**What it is**: Cloud authentication service (Backend-as-a-Service)
+**Responsibilities**:
+- Store user accounts (email, hashed password)
+- Authenticate login requests (verify credentials)
+- Issue JWT access tokens
+- Validate JWT tokens
+
+**Does NOT**:
+- Host any UI or web pages
+- Run MCP server
+- Handle MCP traffic
+
+### 3. Railway
+**What it is**: Cloud platform hosting a web dashboard service
+**Runs**: `railway.py` (web service for CLI login)
+**Responsibilities**:
+- Host CLI login pages (`/cli-login`, `/cli-signup`)
+- Authenticate users via Supabase during first-run setup
+- Redirect back to CLI with tokens after login
+- Future: Dashboard for robot management and access sharing
+
+**Does NOT**:
+- Handle MCP traffic (MCP clients never connect here)
+- Store user credentials (uses Supabase)
+- Run MCP server
+
+### 4. MCP Client (ChatGPT, Claude, etc.)
+**What it is**: AI assistant that uses MCP tools
+**Responsibilities**:
+- Discover MCP server via `/.well-known/*` endpoints
+- Authenticate via OAuth flow (login pages served by local computer)
+- Call MCP tools via `/sse` + `/message`
+
+**Connects to**: Local Computer's MCP server (via Cloudflare tunnel)
+**Does NOT connect to**: Railway (never)
+
+---
+
+## Architecture Diagram
+```
+                    ┌──────────────────┐
+                    │    Supabase      │
+                    │                  │
+                    │  • User accounts │
+                    │  • Auth API      │
+                    └────────┬─────────┘
+                             │
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+          ▼                  ▼                  │
+┌──────────────────┐  ┌──────────────────┐      │
+│ Local Computer   │  │     Railway      │      │
+│ (runs server.py) │  │ (runs railway.py)│      │
+│                  │  │                  │      │
+│  • MCP server    │  │  • /cli-login    │      │
+│  • OAuth flow    │  │  • /cli-signup   │      │
+│  • MCP endpoints │  │  • Dashboard     │      │
+│  • Tools         │  │    (future)      │      │
+└────────┬─────────┘  └──────────────────┘      │
+         │                     ▲                │
+         │ Cloudflare          │ Browser        │
+         │ Tunnel              │ (first-run)    │
+         ▼                     │                │
+┌──────────────────┐    ┌──────────────────┐    │
+│   MCP Client     │    │  CLI Installer   │────┘
+│ (ChatGPT, Claude)│    │  (setup.py)      │
+└──────────────────┘    └──────────────────┘
+```
+
+---
+
 1. **User installs simple-mcp-server on a robot computer**
    - Tool: UV, pip, or shell script (TBD)
    - Status: Manual git clone with setup
@@ -30,8 +119,8 @@ This document tracks the development workflow for deploying MCP servers on robot
    - Status: Manual process via Cloudflare CLI and web interface
    - TODO: Automate URL generation using Cloudflare API (must avoid duplicate names)
 
-6. **User inputs robot-specific URL in ChatGPT or other MCP client**
-   - Tool: User's MCP client (ChatGPT, Claude.ai, etc.)
+6. **User inputs robot-specific URL in MCP client**
+   - Tool: MCP client (ChatGPT, Claude, etc.)
    - Status: Working prototype
    - TODO: Continue testing with various clients
 

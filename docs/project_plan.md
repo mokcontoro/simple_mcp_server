@@ -3,26 +3,39 @@
 ## Architecture
 
 ```
-┌──────────────────┐     ┌──────────────────┐
-│    Supabase      │     │     Railway      │
-│                  │     │                  │
-│  • Auth backend  │◄───►│  • Dashboard UI  │
-│  • User database │     │  • Robot sharing │  ← User A shares with User B
-│  • Access lists  │     │                  │
-└──────────────────┘     └──────────────────┘
-
-           DIRECT CONNECTION (Railway not in data path)
-┌──────────────────┐     ┌──────────────────┐
-│  ChatGPT/Claude  │────►│  Local/Robot     │
-│  (MCP Client)    │◄────│  • MCP Server    │
-│                  │     │  • Cloudflare    │
-└──────────────────┘     └──────────────────┘
+                    ┌──────────────────┐
+                    │    Supabase      │
+                    │                  │
+                    │  • User accounts │
+                    │  • Auth API      │
+                    └────────┬─────────┘
+                             │
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+          ▼                  ▼                  │
+┌──────────────────┐  ┌──────────────────┐      │
+│ Local Computer   │  │     Railway      │      │
+│ (runs server.py) │  │ (runs railway.py)│      │
+│                  │  │                  │      │
+│  • MCP server    │  │  • /cli-login    │      │
+│  • OAuth flow    │  │  • /cli-signup   │      │
+│  • MCP endpoints │  │  • Dashboard     │      │
+│  • Tools         │  │    (future)      │      │
+└────────┬─────────┘  └──────────────────┘      │
+         │                     ▲                │
+         │ Cloudflare          │ Browser        │
+         │ Tunnel              │ (first-run)    │
+         ▼                     │                │
+┌──────────────────┐    ┌──────────────────┐    │
+│   MCP Client     │    │  CLI Installer   │────┘
+│ (ChatGPT, Claude)│    │  (setup.py)      │
+└──────────────────┘    └──────────────────┘
 ```
 
-- **Supabase**: Auth backend, user database, access permission lists
-- **Railway**: Dashboard UI only (robot registry, sharing access between users)
-- **Local/Robot**: MCP server runs here, direct connection via Cloudflare tunnel
-- **MCP traffic**: Direct from client → Cloudflare → Local (Railway not involved)
+- **Local Computer**: Runs MCP server (`server.py`), handles OAuth + MCP endpoints
+- **Supabase**: Auth backend, user accounts, token validation
+- **Railway**: CLI login pages only, future dashboard (NOT in MCP data path)
+- **MCP Client**: Connects directly to Local Computer via Cloudflare tunnel
 
 ---
 
@@ -86,7 +99,7 @@
 |------|--------|
 | Local server validates access via Supabase | ⬚ TODO |
 | Multi-user access to single robot | ⬚ TODO |
-| ChatGPT/Claude.ai testing | ⬚ TODO |
+| MCP client testing | ⬚ TODO |
 | Documentation | ⬚ TODO |
 | PyPI publication | ⬚ TODO |
 
