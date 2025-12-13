@@ -124,7 +124,7 @@ def run_login_flow() -> bool:
     print()
 
     if server.login_error:
-        print(f"\n✗ Login failed: {server.login_error}")
+        print(f"\n[X] Login failed: {server.login_error}")
         return False
 
     if server.login_result:
@@ -135,7 +135,7 @@ def run_login_flow() -> bool:
             access_token=result["access_token"],
             refresh_token=result.get("refresh_token"),
         )
-        print(f"\n✓ Logged in as: {result['email']}")
+        print(f"\n[OK] Logged in as: {result['email']}")
         print(f"  Config saved to: ~/.simple-mcp-server/config.json\n")
 
         # Debug: Display user info
@@ -151,5 +151,5 @@ def run_login_flow() -> bool:
 
         return True
 
-    print("\n✗ Login timed out. Please try again.")
+    print("\n[X] Login timed out. Please try again.")
     return False
