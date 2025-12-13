@@ -21,3 +21,12 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+nul
+
+# Test artifacts
+hello_world/
+
+# Build
+dist/
+build/
+*.egg-info/
