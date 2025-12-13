@@ -16,6 +16,8 @@ from urllib.parse import urlencode
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+print("=== RAILWAY.PY v1.2.0 LOADED ===", flush=True)
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -252,11 +254,11 @@ async def cli_login_submit(
                 access_token = response.session.access_token
                 refresh_token = response.session.refresh_token
                 # Extract user metadata
-                logger.warning(f"[DEBUG] user_metadata: {response.user.user_metadata}")
+                print(f"[DEBUG] user_metadata: {response.user.user_metadata}", flush=True)
                 if response.user.user_metadata:
                     name = response.user.user_metadata.get("name", "")
                     organization = response.user.user_metadata.get("organization", "")
-                logger.warning(f"[DEBUG] Extracted - name: {name}, org: {organization}")
+                print(f"[DEBUG] Extracted - name: {name}, org: {organization}", flush=True)
             else:
                 error_html = '<div class="error">Invalid email or password</div>'
                 return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
