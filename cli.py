@@ -88,6 +88,66 @@ def logout():
     print("Config removed from ~/.simple-mcp-server/config.json")
 
 
+def show_status():
+    """Show current status of simple-mcp-server."""
+    print("\n=== Simple MCP Server Status ===\n")
+
+    # Check config
+    config = load_config()
+
+    # Login status
+    print("[Login]")
+    if config.is_valid():
+        print(f"  Status: Logged in")
+        print(f"  Email: {config.email}")
+        print(f"  User ID: {config.user_id}")
+
+        # Fetch additional user info from Supabase
+        if SUPABASE_URL and SUPABASE_ANON_KEY:
+            user_info = fetch_user_info(config.access_token)
+            if user_info:
+                print(f"  Name: {user_info.get('name') or '(not set)'}")
+                print(f"  Organization: {user_info.get('organization') or '(not set)'}")
+    else:
+        print(f"  Status: Not logged in")
+        print(f"  Run 'simple-mcp-server' to log in")
+
+    print()
+
+    # Tunnel status
+    print("[Tunnel]")
+    if config.has_tunnel():
+        print(f"  Status: Configured")
+        print(f"  Robot Name: {config.robot_name}")
+        print(f"  URL: {config.tunnel_url}")
+    else:
+        print(f"  Status: Not configured")
+        if config.is_valid():
+            print(f"  Run 'simple-mcp-server' to set up tunnel")
+
+    print()
+
+    # cloudflared status
+    print("[cloudflared]")
+    if check_cloudflared():
+        cloudflared_path = shutil.which("cloudflared")
+        print(f"  Status: Installed")
+        print(f"  Path: {cloudflared_path}")
+    else:
+        print(f"  Status: Not installed")
+        print(f"  Install: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/")
+
+    print()
+
+    # Config file location
+    print("[Config]")
+    from config import CONFIG_FILE
+    print(f"  Location: {CONFIG_FILE}")
+    print(f"  Exists: {CONFIG_FILE.exists()}")
+
+    print()
+
+
 def main():
     """Start the local MCP server with first-run setup."""
     parser = argparse.ArgumentParser(
@@ -98,7 +158,17 @@ def main():
         action="store_true",
         help="Log out and clear stored credentials"
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Show current status and configuration"
+    )
     args = parser.parse_args()
+
+    # Handle status
+    if args.status:
+        show_status()
+        sys.exit(0)
 
     # Handle logout
     if args.logout:
