@@ -33,7 +33,10 @@
       "Bash(git reset:*)",
       "Bash(dir:*)",
       "Bash(cmd //c \"taskkill /PID 34228 /F\")",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(where:*)",
+      "Bash(cmd //c \"where cloudflared\")",
+      "Bash(git pull:*)"
     ]
   }
 }
