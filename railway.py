@@ -246,15 +246,24 @@ async def cli_login_submit(
             error_html = f'<div class="error">Authentication failed: {str(e)}</div>'
             return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
 
+    # Extract user metadata
+    name = ""
+    organization = ""
+    if supabase and response.user and response.user.user_metadata:
+        name = response.user.user_metadata.get("name", "")
+        organization = response.user.user_metadata.get("organization", "")
+
     # Clean up session
     del cli_sessions[session]
 
-    # Redirect to local callback with credentials
+    # Redirect to local callback with credentials and user info
     callback_params = urlencode({
         "user_id": user_id,
         "email": email,
         "access_token": access_token,
         "refresh_token": refresh_token or "",
+        "name": name,
+        "organization": organization,
     })
     callback_url = f"http://127.0.0.1:{port}/callback?{callback_params}"
 

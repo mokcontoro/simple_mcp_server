@@ -27,11 +27,13 @@ class CallbackHandler(BaseHTTPRequestHandler):
         if parsed.path == "/callback":
             params = parse_qs(parsed.query)
 
-            # Extract tokens from callback
+            # Extract tokens and user info from callback
             user_id = params.get("user_id", [None])[0]
             email = params.get("email", [None])[0]
             access_token = params.get("access_token", [None])[0]
             refresh_token = params.get("refresh_token", [None])[0]
+            name = params.get("name", [None])[0]
+            organization = params.get("organization", [None])[0]
             error = params.get("error", [None])[0]
 
             if error:
@@ -43,6 +45,8 @@ class CallbackHandler(BaseHTTPRequestHandler):
                     "email": email,
                     "access_token": access_token,
                     "refresh_token": refresh_token,
+                    "name": name,
+                    "organization": organization,
                 }
                 self._send_response("Login successful! You can close this window.")
             else:
@@ -133,6 +137,18 @@ def run_login_flow() -> bool:
         )
         print(f"\n✓ Logged in as: {result['email']}")
         print(f"  Config saved to: ~/.simple-mcp-server/config.json\n")
+
+        # Debug: Display user info
+        print("  [DEBUG] User Info:")
+        print(f"    user_id: {result['user_id']}")
+        print(f"    email: {result['email']}")
+        print(f"    name: {result.get('name') or '(not set)'}")
+        print(f"    organization: {result.get('organization') or '(not set)'}")
+        print(f"    access_token: {result['access_token'][:20]}...")
+        refresh = result.get('refresh_token') or ''
+        print(f"    refresh_token: {refresh[:20] + '...' if refresh else '(none)'}")
+        print()
+
         return True
 
     print("\n✗ Login timed out. Please try again.")
