@@ -477,6 +477,29 @@ async def create_cloudflare_tunnel(robot_name: str) -> dict:
 
         logger.info(f"DNS record created: {robot_name}.{CLOUDFLARE_DOMAIN}")
 
+        # Configure tunnel ingress rules
+        config_url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/{tunnel_id}/configurations"
+        config_data = {
+            "config": {
+                "ingress": [
+                    {
+                        "hostname": f"{robot_name}.{CLOUDFLARE_DOMAIN}",
+                        "service": "http://localhost:8000"
+                    },
+                    {
+                        "service": "http_status:404"
+                    }
+                ]
+            }
+        }
+
+        logger.info(f"Configuring tunnel ingress rules...")
+        config_response = await client.put(config_url, headers=headers, json=config_data)
+
+        if config_response.status_code not in [200, 201]:
+            error_detail = config_response.json().get("errors", [{}])[0].get("message", "Unknown error")
+            logger.warning(f"Tunnel config failed (non-fatal): {error_detail}")
+
         return {
             "tunnel_id": tunnel_id,
             "tunnel_token": tunnel_token,
