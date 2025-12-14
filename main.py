@@ -14,8 +14,18 @@ import secrets
 import hashlib
 import base64
 import time
+import logging
+import sys
 from typing import Any
 from urllib.parse import urlencode
+
+# Configure logging to stderr with immediate flush
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.StreamHandler(sys.stderr)]
+)
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException, Form
@@ -44,7 +54,7 @@ if SUPABASE_URL and SUPABASE_ANON_KEY:
 
 # Load local config (server creator info from CLI login)
 local_config = load_config()
-print(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email: {local_config.email}, user_id: {local_config.user_id}", flush=True)
+logger.warning(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email: {local_config.email}, user_id: {local_config.user_id}")
 
 # In-memory stores (use Redis/DB in production)
 registered_clients: dict[str, dict] = {}
@@ -709,32 +719,48 @@ def check_authorization(token_data: dict) -> bool:
     creator_user_id = local_config.user_id
     connecting_user_id = token_data.get("user_id")
 
-    print(f"[AUTH] ========== AUTHORIZATION CHECK ==========", flush=True)
-    print(f"[AUTH] local_config.is_valid(): {local_config.is_valid()}", flush=True)
-    print(f"[AUTH] local_config.email: {local_config.email}", flush=True)
-    print(f"[AUTH] Creator user_id: {creator_user_id}", flush=True)
-    print(f"[AUTH] Connecting user_id: {connecting_user_id}", flush=True)
-    print(f"[AUTH] token_data keys: {list(token_data.keys())}", flush=True)
-    print(f"[AUTH] token_data user_email: {token_data.get('user_email')}", flush=True)
+    logger.warning(f"[AUTH] ========== AUTHORIZATION CHECK ==========")
+    logger.warning(f"[AUTH] local_config.is_valid(): {local_config.is_valid()}")
+    logger.warning(f"[AUTH] local_config.email: {local_config.email}")
+    logger.warning(f"[AUTH] Creator user_id: {creator_user_id}")
+    logger.warning(f"[AUTH] Connecting user_id: {connecting_user_id}")
+    logger.warning(f"[AUTH] token_data keys: {list(token_data.keys())}")
+    logger.warning(f"[AUTH] token_data user_email: {token_data.get('user_email')}")
 
     # If no creator configured, allow all authenticated users
     if not creator_user_id:
-        print("[AUTH] WARNING: No creator configured, allowing access", flush=True)
+        logger.warning("[AUTH] WARNING: No creator configured, allowing access")
         return True
 
     # Check if connecting user matches creator
     if connecting_user_id != creator_user_id:
-        print(f"[AUTH] DENIED: {connecting_user_id} != {creator_user_id}", flush=True)
+        logger.warning(f"[AUTH] DENIED: {connecting_user_id} != {creator_user_id}")
         raise HTTPException(
             status_code=403,
             detail="Access denied: not authorized for this server"
         )
 
-    print("[AUTH] ALLOWED: user is server creator", flush=True)
+    logger.warning("[AUTH] ALLOWED: user is server creator")
     return True
 
 
 # ============== MCP Endpoints ==============
+
+@app.get("/debug/create-test-token")
+async def debug_create_test_token(user_id: str = "test-user-wrong", email: str = "wrong@test.com"):
+    """DEBUG: Create a test token for authorization testing."""
+    test_token = f"test-token-{secrets.token_hex(8)}"
+    access_tokens[test_token] = {
+        "client_id": "test-client",
+        "scope": "mcp:tools",
+        "user_id": user_id,
+        "user_email": email,
+        "created_at": int(time.time()),
+        "expires_at": int(time.time()) + 3600
+    }
+    logger.warning(f"[DEBUG] Created test token for user_id={user_id}, email={email}")
+    return {"token": test_token, "user_id": user_id, "email": email}
+
 
 @app.get("/health")
 async def health_check():
@@ -760,41 +786,41 @@ async def root():
 @app.get("/sse")
 async def sse_endpoint(request: Request) -> Response:
     """SSE endpoint for MCP client connections."""
-    print(f"[SSE] ========== SSE ENDPOINT HIT ==========", flush=True)
+    logger.warning(f"[SSE] ========== SSE ENDPOINT HIT ==========")
     # Verify auth token - MCP clients need proper 401 with WWW-Authenticate header
     auth_header = request.headers.get("Authorization", "")
-    print(f"[SSE] Auth header present: {bool(auth_header)}", flush=True)
+    logger.warning(f"[SSE] Auth header present: {bool(auth_header)}")
 
     if not auth_header.startswith("Bearer "):
-        print(f"[SSE] No Bearer token, returning 401", flush=True)
+        logger.warning(f"[SSE] No Bearer token, returning 401")
         return unauthorized_response("Missing or invalid Authorization header")
 
     token = auth_header[7:]
-    print(f"[SSE] Token (first 20 chars): {token[:20]}...", flush=True)
-    print(f"[SSE] Number of access_tokens in memory: {len(access_tokens)}", flush=True)
+    logger.warning(f"[SSE] Token (first 20 chars): {token[:20]}...")
+    logger.warning(f"[SSE] Number of access_tokens in memory: {len(access_tokens)}")
 
     token_data = None
     if token in access_tokens:
         token_data = access_tokens[token]
-        print(f"[SSE] Token found in access_tokens", flush=True)
+        logger.warning(f"[SSE] Token found in access_tokens")
         if time.time() >= token_data["expires_at"]:
-            print(f"[SSE] Token expired", flush=True)
+            logger.warning(f"[SSE] Token expired")
             token_data = None
 
     if not token_data:
-        print(f"[SSE] No valid token_data, returning 401", flush=True)
+        logger.warning(f"[SSE] No valid token_data, returning 401")
         return unauthorized_response("Invalid or expired token")
 
-    print(f"[SSE] Token valid, checking authorization...", flush=True)
+    logger.warning(f"[SSE] Token valid, checking authorization...")
 
     # Check if user is authorized to access this server
     try:
         check_authorization(token_data)
     except HTTPException as e:
-        print(f"[SSE] Authorization failed: {e.detail}", flush=True)
+        logger.warning(f"[SSE] Authorization failed: {e.detail}")
         return forbidden_response(e.detail)
 
-    print(f"[SSE] Authorization passed, starting MCP session", flush=True)
+    logger.warning(f"[SSE] Authorization passed, starting MCP session")
 
     async with sse_transport.connect_sse(
         request.scope, request.receive, request._send
