@@ -760,27 +760,41 @@ async def root():
 @app.get("/sse")
 async def sse_endpoint(request: Request) -> Response:
     """SSE endpoint for MCP client connections."""
+    print(f"[SSE] ========== SSE ENDPOINT HIT ==========", flush=True)
     # Verify auth token - MCP clients need proper 401 with WWW-Authenticate header
     auth_header = request.headers.get("Authorization", "")
+    print(f"[SSE] Auth header present: {bool(auth_header)}", flush=True)
 
     if not auth_header.startswith("Bearer "):
+        print(f"[SSE] No Bearer token, returning 401", flush=True)
         return unauthorized_response("Missing or invalid Authorization header")
 
     token = auth_header[7:]
+    print(f"[SSE] Token (first 20 chars): {token[:20]}...", flush=True)
+    print(f"[SSE] Number of access_tokens in memory: {len(access_tokens)}", flush=True)
+
     token_data = None
     if token in access_tokens:
         token_data = access_tokens[token]
+        print(f"[SSE] Token found in access_tokens", flush=True)
         if time.time() >= token_data["expires_at"]:
+            print(f"[SSE] Token expired", flush=True)
             token_data = None
 
     if not token_data:
+        print(f"[SSE] No valid token_data, returning 401", flush=True)
         return unauthorized_response("Invalid or expired token")
+
+    print(f"[SSE] Token valid, checking authorization...", flush=True)
 
     # Check if user is authorized to access this server
     try:
         check_authorization(token_data)
     except HTTPException as e:
+        print(f"[SSE] Authorization failed: {e.detail}", flush=True)
         return forbidden_response(e.detail)
+
+    print(f"[SSE] Authorization passed, starting MCP session", flush=True)
 
     async with sse_transport.connect_sse(
         request.scope, request.receive, request._send
