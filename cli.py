@@ -21,7 +21,16 @@ from supabase import create_client
 
 from config import load_config, clear_config, CONFIG_FILE
 
-load_dotenv()
+# Load environment: .env (local override) or .env.public (bundled defaults)
+_env_file = Path(".env")
+if _env_file.exists():
+    load_dotenv(_env_file)
+else:
+    # Load bundled .env.public from package directory
+    _package_dir = Path(__file__).parent
+    _public_env = _package_dir / ".env.public"
+    if _public_env.exists():
+        load_dotenv(_public_env)
 
 VERSION = "1.3.0"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")

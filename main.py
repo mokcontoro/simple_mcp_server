@@ -16,6 +16,7 @@ import base64
 import time
 import logging
 import sys
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
@@ -38,7 +39,16 @@ from supabase import create_client, Client
 
 from config import load_config
 
-load_dotenv()
+# Load environment: .env (local override) or .env.public (bundled defaults)
+_env_file = Path(".env")
+if _env_file.exists():
+    load_dotenv(_env_file)
+else:
+    # Load bundled .env.public from package directory
+    _package_dir = Path(__file__).parent
+    _public_env = _package_dir / ".env.public"
+    if _public_env.exists():
+        load_dotenv(_public_env)
 
 # Environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")

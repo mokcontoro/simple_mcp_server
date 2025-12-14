@@ -39,3 +39,18 @@ simple-mcp-server = "cli:main"
 [project.urls]
 Homepage = "https://github.com/mokcontoro/simple_mcp_server"
 Repository = "https://github.com/mokcontoro/simple_mcp_server"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+include = [
+    "*.py",
+    ".env.public",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "*.py",
+    ".env.public",
+    "requirements.txt",
+    "README.md",
+]
