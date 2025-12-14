@@ -34,31 +34,31 @@ def is_wsl() -> bool:
     return False
 
 
-def get_wsl_host_ip() -> str:
-    """Get the Windows host IP from WSL's perspective.
+def get_wsl_ip() -> str:
+    """Get WSL's own IP address that Windows can reach.
 
-    In WSL2, the Windows host can be reached via the IP in /etc/resolv.conf
-    or via the special hostname 'host.docker.internal' (if Docker is installed).
+    In WSL2, Windows can reach WSL via the IP shown by 'hostname -I'.
+    This is the eth0 IP address that's on the virtual network between
+    Windows and WSL2.
     """
-    # Try to get from /etc/resolv.conf (nameserver is usually the Windows host)
-    try:
-        with open("/etc/resolv.conf", "r") as f:
-            for line in f:
-                if line.startswith("nameserver"):
-                    ip = line.split()[1]
-                    # Verify it's not a loopback
-                    if not ip.startswith("127."):
-                        return ip
-    except:
-        pass
-
-    # Fallback: try hostname -I to get WSL's own IP
+    # Get WSL's own IP via hostname -I
     try:
         result = subprocess.run(["hostname", "-I"], capture_output=True, text=True)
         if result.returncode == 0:
             ips = result.stdout.strip().split()
             if ips:
                 return ips[0]
+    except:
+        pass
+
+    # Fallback: try ip addr to get eth0 IP
+    try:
+        result = subprocess.run(["ip", "addr", "show", "eth0"], capture_output=True, text=True)
+        if result.returncode == 0:
+            import re
+            match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', result.stdout)
+            if match:
+                return match.group(1)
     except:
         pass
 
@@ -216,9 +216,10 @@ def run_login_flow() -> bool:
     # Detect WSL and determine callback host
     running_in_wsl = is_wsl()
     if running_in_wsl:
-        wsl_ip = get_wsl_host_ip()
+        wsl_ip = get_wsl_ip()
         # Use WSL's own IP for the callback (Windows browser -> WSL)
         callback_host = wsl_ip if wsl_ip else "localhost"
+        print(f"[WSL detected] WSL IP: {wsl_ip}")
         print(f"[WSL detected] Using callback address: {callback_host}:{port}")
     else:
         callback_host = "127.0.0.1"
