@@ -1,5 +1,11 @@
 # Workflow for Simple MCP Server
 
+**Copyright (c) 2024 Contoro. All rights reserved.**
+
+This software is proprietary and confidential. Unauthorized copying, modification, distribution, or use of this software is strictly prohibited without the express written permission of Contoro.
+
+---
+
 This document tracks the development workflow for deploying MCP servers on robot computers. The `simple-mcp-server` serves as a testing ground for individual components before migrating to `ros-mcp-server`.
 
 ---
@@ -8,14 +14,15 @@ This document tracks the development workflow for deploying MCP servers on robot
 
 ### 1. Local Computer (user's PC / robot)
 **What it is**: The user's machine that runs the MCP server
-**Runs**: `server.py` (MCP server application)
+**Runs**: `main.py` (MCP server application) via `cli.py`
 **Responsibilities**:
 - Run the MCP server process
 - Host MCP tools (echo, ping, etc.)
 - Handle MCP protocol (`/sse`, `/message` endpoints)
 - Handle OAuth flow for MCP clients (`/authorize`, `/login`, `/token`)
-- Validate access tokens via Supabase
-- Expose to internet via Cloudflare tunnel
+- Validate access tokens
+- **Enforce creator-only access control** (403 for unauthorized users)
+- Expose to internet via Cloudflare tunnel (`{name}.robotmcp.ai`)
 
 **Does NOT**:
 - Store user credentials (delegates to Supabase)
@@ -24,7 +31,7 @@ This document tracks the development workflow for deploying MCP servers on robot
 ### 2. Supabase
 **What it is**: Cloud authentication service (Backend-as-a-Service)
 **Responsibilities**:
-- Store user accounts (email, hashed password)
+- Store user accounts (email, hashed password, name, organization)
 - Authenticate login requests (verify credentials)
 - Issue JWT access tokens
 - Validate JWT tokens
@@ -35,11 +42,12 @@ This document tracks the development workflow for deploying MCP servers on robot
 - Handle MCP traffic
 
 ### 3. Railway
-**What it is**: Cloud platform hosting a web dashboard service
-**Runs**: `railway.py` (web service for CLI login)
+**What it is**: Cloud platform hosting auth and tunnel management
+**Runs**: Web service for CLI login and tunnel creation
 **Responsibilities**:
 - Host CLI login pages (`/cli-login`, `/cli-signup`)
 - Authenticate users via Supabase during first-run setup
+- Create Cloudflare tunnels (`/create-tunnel`)
 - Redirect back to CLI with tokens after login
 - Future: Dashboard for robot management and access sharing
 
@@ -58,6 +66,13 @@ This document tracks the development workflow for deploying MCP servers on robot
 **Connects to**: Local Computer's MCP server (via Cloudflare tunnel)
 **Does NOT connect to**: Railway (never)
 
+### 5. Cloudflare Tunnel
+**What it is**: Secure tunnel service
+**Responsibilities**:
+- Route traffic from `{name}.robotmcp.ai` to local server
+- TLS termination
+- DDoS protection
+
 ---
 
 ## Architecture Diagram
@@ -74,12 +89,13 @@ This document tracks the development workflow for deploying MCP servers on robot
           ▼                  ▼                  │
 ┌──────────────────┐  ┌──────────────────┐      │
 │ Local Computer   │  │     Railway      │      │
-│ (runs server.py) │  │ (runs railway.py)│      │
+│  (runs main.py)  │  │  (auth server)   │      │
 │                  │  │                  │      │
 │  • MCP server    │  │  • /cli-login    │      │
 │  • OAuth flow    │  │  • /cli-signup   │      │
-│  • MCP endpoints │  │  • Dashboard     │      │
-│  • Tools         │  │    (future)      │      │
+│  • MCP endpoints │  │  • /create-tunnel│      │
+│  • Tools         │  │  • Dashboard     │      │
+│  • Auth check    │  │    (future)      │      │
 └────────┬─────────┘  └──────────────────┘      │
          │                     ▲                │
          │ Cloudflare          │ Browser        │
@@ -87,47 +103,86 @@ This document tracks the development workflow for deploying MCP servers on robot
          ▼                     │                │
 ┌──────────────────┐    ┌──────────────────┐    │
 │   MCP Client     │    │  CLI Installer   │────┘
-│ (ChatGPT, Claude)│    │  (setup.py)      │
+│ (ChatGPT, Claude)│    │  (cli.py)        │
 └──────────────────┘    └──────────────────┘
 ```
 
 ---
 
-1. **User installs simple-mcp-server on a robot computer**
-   - Tool: UV, pip, or shell script (TBD)
-   - Status: Manual git clone with setup
-   - TODO: Create an automated installation script
+## Implementation Status
 
-2. **Installer prompts user to login at robotmcp.ai (or sign up if no account)**
-   - Tool: Supabase authentication
-   - Status: **Implemented** - Login/signup pages with Supabase auth exist in main.py
-   - Note: Currently using Railway URLs; robotmcp.ai is the planned production domain
-   - TODO: Create installer that triggers the auth flow (Claude Code style login)
+### 1. User installs simple-mcp-server on a robot computer ✅
+- Tool: Git clone + pip install
+- Status: **Complete**
+- Commands: `git clone`, `pip install -r requirements.txt`
 
-3. **Installer retrieves user info from Supabase after login**
-   - Tool: Supabase client
-   - Status: **Implemented** - User info stored in `authenticated_sessions` after OAuth flow
-   - TODO: Integrate into installer script
+### 2. User runs CLI and logs in via browser ✅
+- Tool: `cli.py` + Railway auth pages + Supabase
+- Status: **Complete**
+- Command: `python cli.py` (opens browser for login/signup)
 
-4. **User enters a robot name during installation**
-   - Tool: Shell script / installer prompt
-   - Status: Not yet implemented
-   - TODO: Add robot naming step to installer
+### 3. User info retrieved from Supabase ✅
+- Tool: Supabase client
+- Status: **Complete**
+- Stored in `~/.simple-mcp-server/config.json`
 
-5. **Installer creates robot-specific URL (e.g., mok-robot1.robotmcp.ai)**
-   - Tool: Cloudflared CLI / Cloudflare API
-   - Status: Manual process via Cloudflare CLI and web interface
-   - TODO: Automate URL generation using Cloudflare API (must avoid duplicate names)
+### 4. User enters a robot name ✅
+- Tool: CLI prompt
+- Status: **Complete**
+- Format: `{name}.robotmcp.ai`
 
-6. **User inputs robot-specific URL in MCP client**
-   - Tool: MCP client (ChatGPT, Claude, etc.)
-   - Status: Working prototype
-   - TODO: Continue testing with various clients
+### 5. Cloudflare tunnel created automatically ✅
+- Tool: Railway API + Cloudflare
+- Status: **Complete**
+- Tunnel token saved to config
 
-7. **OAuth login for MCP connection (skipped if already authenticated)**
-   - Tool: OAuth 2.1 flow in main.py
-   - Status: Working prototype
-   - TODO: Continue testing
+### 6. User inputs robot URL in MCP client ✅
+- Tool: MCP client (ChatGPT, Claude)
+- Status: **Complete**
+- Example: `https://myrobot.robotmcp.ai/sse`
+
+### 7. OAuth login for MCP connection ✅
+- Tool: OAuth 2.1 flow in main.py
+- Status: **Complete**
+- Creator-only access enforced (403 for others)
+
+---
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `python cli.py` | Start server (first-run triggers setup) |
+| `python cli.py --stop` | Stop server and tunnel |
+| `python cli.py --logout` | Stop server and clear credentials |
+| `python cli.py --status` | Show current configuration |
+
+---
+
+## Access Control
+
+### Current: Creator-Only Access ✅
+- Server creator's `user_id` stored in config during setup
+- On MCP client connection, server checks if authenticated user matches creator
+- Non-matching users receive `403 Forbidden`
+
+### Future: Multi-User Access (TODO)
+```python
+# Planned config structure
+{
+    "user_id": "creator-uuid",
+    "email": "creator@example.com",
+    "allowed_users": [
+        "user-uuid-1",
+        "user-uuid-2"
+    ]
+}
+
+# Authorization check
+allowed = [creator_user_id] + config.allowed_users
+if connecting_user_id not in allowed:
+    raise HTTPException(status_code=403)
+```
 
 ---
 
@@ -155,34 +210,58 @@ ros-mcp-server/
 ├── pyproject.toml          # Entry point: ros-mcp-server = "ros_mcp.cli:main"
 ├── ros_mcp/
 │   ├── cli.py              # Main entry with first-run detection
-│   ├── setup_flow.py       # Interactive setup (OAuth, naming, tunnel)
+│   ├── setup.py            # Interactive setup (OAuth, naming, tunnel)
 │   ├── config.py           # Config management
 │   └── server.py           # MCP server logic
 ```
 
-### First-Run Detection
+### First-Run Detection (Implemented)
 ```python
 def main():
     config = load_config()
     if not config.is_valid():
-        run_setup_flow()  # Interactive setup
-    start_server(config)
-```
+        run_login_flow()  # Interactive setup
 
-### Optional Bootstrap (for users without pipx)
-```bash
-curl -fsSL https://robotmcp.ai/install.sh | bash
-# Checks Python → installs pipx → runs pipx install → starts setup
-```
+    # Clean up old processes
+    kill_cloudflared_processes()
+    kill_processes_on_port(8000)
 
-### Why pipx?
-- Single command install with automatic isolation
-- No dependency conflicts
-- Easy updates: `pipx upgrade ros-mcp-server`
-- Security: no curl|bash required for main install
+    # Start tunnel and server
+    tunnel_process = run_cloudflared_tunnel(config.tunnel_token)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+```
 
 ---
 
-## Open Questions
+## Troubleshooting
 
-- How do we allow multiple users to access one MCP server?
+### Cloudflared Windows Service Conflict
+If cloudflared is installed as a Windows service, it may intercept tunnel traffic:
+```powershell
+# Check status
+python cli.py --status
+
+# Stop service (Admin Command Prompt)
+net stop cloudflared
+
+# Or uninstall permanently
+cloudflared service uninstall
+```
+
+### Port 8000 Already in Use
+```powershell
+python cli.py --stop
+# or
+netstat -ano | findstr :8000
+taskkill /F /PID <pid>
+```
+
+---
+
+## Open Questions (Resolved)
+
+| Question | Answer |
+|----------|--------|
+| How do we allow multiple users to access one MCP server? | Phase 6: Add `allowed_users` list to config, check during authorization |
+| How to handle cloudflared service conflicts? | Added detection and warning in CLI startup |
+| How to clean up zombie processes? | Added `--stop` command and auto-cleanup on startup |
