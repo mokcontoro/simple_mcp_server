@@ -135,7 +135,7 @@ This will:
 2. **Prompt for robot name** (e.g., `myrobot` becomes `myrobot.robotmcp.ai`)
 3. **Create Cloudflare tunnel** automatically
 4. **Save configuration** to `~/.simple-mcp-server/config.json`
-5. **Start the MCP server** on port 8000
+5. **Start the MCP server** in background (daemon mode)
 
 You'll see a startup banner like this:
 ```
@@ -143,10 +143,13 @@ You'll see a startup banner like this:
   Simple MCP Server
 ==================================================
   User:   you@example.com
-  URL:    https://myrobot.robotmcp.ai
   SSE:    https://myrobot.robotmcp.ai/sse
 ==================================================
-  Press Ctrl+C to stop
+  Copy the SSE URL above to your MCP client
+  (ChatGPT, Claude, etc.)
+
+  Server running in background.
+  Run 'simple-mcp-server stop' to stop.
 ==================================================
 ```
 
@@ -156,14 +159,16 @@ You'll see a startup banner like this:
 
 | Command | Description |
 |---------|-------------|
-| `python cli.py` | Start the server (default) |
-| `python cli.py start` | Start the server |
-| `python cli.py stop` | Stop server and tunnel |
-| `python cli.py restart` | Restart the server |
-| `python cli.py status` | Show current status |
-| `python cli.py logout` | Clear credentials and stop |
-| `python cli.py version` | Show version info |
-| `python cli.py help` | Show detailed help |
+| `simple-mcp-server` | Start server in background (default) |
+| `simple-mcp-server start` | Start server in background |
+| `simple-mcp-server stop` | Stop server and tunnel |
+| `simple-mcp-server restart` | Restart the server |
+| `simple-mcp-server status` | Show current status (PID, log file) |
+| `simple-mcp-server logout` | Clear credentials and stop |
+| `simple-mcp-server version` | Show version info |
+| `simple-mcp-server help` | Show detailed help |
+
+**Note:** The server runs as a background daemon. Logs are written to `~/.simple-mcp-server/server.log`.
 
 ### Legacy Flag Support
 

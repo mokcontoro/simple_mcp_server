@@ -143,3 +143,5 @@ This software is proprietary and confidential. Unauthorized copying, modificatio
 | 1.0.0 | 2024-12 | Initial release with OAuth 2.1 |
 | 1.1.0 | 2024-12 | CLI login, tunnel setup |
 | 1.2.0 | 2024-12 | Creator-only access control, CLI improvements |
+| 1.3.0 | 2025-01 | Auto-download cloudflared, bundled credentials, improved UX |
+| 1.4.0 | 2025-01 | Background daemon mode, auto-add PATH to bashrc |
