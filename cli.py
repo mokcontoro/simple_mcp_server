@@ -32,13 +32,18 @@ else:
     if _public_env.exists():
         load_dotenv(_public_env)
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
 # Cloudflared auto-install settings
 CLOUDFLARED_INSTALL_DIR = Path.home() / ".local" / "bin"
 CLOUDFLARED_RELEASES_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download"
+
+# Daemon settings
+CONFIG_DIR = Path.home() / ".simple-mcp-server"
+PID_FILE = CONFIG_DIR / "server.pid"
+LOG_FILE = CONFIG_DIR / "server.log"
 
 
 # ============== Helper Functions ==============
@@ -321,11 +326,117 @@ def ensure_cloudflared() -> bool:
     return False
 
 
+# ============== Daemon Functions ==============
+
+def save_pid(pid: int):
+    """Save daemon PID to file."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    PID_FILE.write_text(str(pid))
+
+
+def read_pid() -> int | None:
+    """Read daemon PID from file."""
+    if PID_FILE.exists():
+        try:
+            return int(PID_FILE.read_text().strip())
+        except (ValueError, OSError):
+            pass
+    return None
+
+
+def clear_pid():
+    """Remove PID file."""
+    if PID_FILE.exists():
+        PID_FILE.unlink()
+
+
+def is_process_running(pid: int) -> bool:
+    """Check if a process with given PID is running."""
+    if platform.system() == "Windows":
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True
+            )
+            return str(pid) in result.stdout
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)  # Signal 0 just checks if process exists
+            return True
+        except OSError:
+            return False
+
+
+def is_daemon_running() -> tuple[bool, int | None]:
+    """Check if daemon is running. Returns (is_running, pid)."""
+    pid = read_pid()
+    if pid and is_process_running(pid):
+        return True, pid
+    return False, None
+
+
+def stop_daemon() -> bool:
+    """Stop the running daemon."""
+    running, pid = is_daemon_running()
+    if not running:
+        return False
+
+    try:
+        if platform.system() == "Windows":
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+        else:
+            os.kill(pid, signal.SIGTERM)
+        clear_pid()
+        return True
+    except Exception:
+        return False
+
+
+def daemonize():
+    """Fork and daemonize the current process (Unix only)."""
+    if platform.system() == "Windows":
+        return  # Windows doesn't support fork
+
+    # First fork
+    pid = os.fork()
+    if pid > 0:
+        # Parent exits
+        sys.exit(0)
+
+    # Decouple from parent environment
+    os.setsid()
+    os.umask(0)
+
+    # Second fork
+    pid = os.fork()
+    if pid > 0:
+        sys.exit(0)
+
+    # Redirect standard file descriptors to log file
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    log_fd = open(LOG_FILE, 'a')
+    os.dup2(log_fd.fileno(), sys.stdout.fileno())
+    os.dup2(log_fd.fileno(), sys.stderr.fileno())
+
+
 # ============== CLI Commands ==============
 
 def cmd_start():
-    """Start the MCP server."""
+    """Start the MCP server in background."""
     from setup import run_login_flow
+
+    # Check if already running
+    running, pid = is_daemon_running()
+    if running:
+        print(f"Server is already running (PID: {pid})")
+        print("  Use 'simple-mcp-server stop' to stop it first")
+        return
 
     config = load_config()
 
@@ -359,25 +470,6 @@ def cmd_start():
         print("  > net stop cloudflared  (as Admin)")
         print()
 
-    # Check if already running
-    if is_server_running():
-        print("\n[WARNING] Server may already be running on port 8000.")
-        print("  Use 'simple-mcp-server stop' first, or 'simple-mcp-server restart'")
-        print()
-
-    # Track tunnel process
-    tunnel_process = None
-
-    def signal_handler(sig, frame):
-        print("\n\nShutting down...")
-        if tunnel_process:
-            tunnel_process.terminate()
-            tunnel_process.wait()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
     # Cleanup old processes
     print("\nCleaning up old processes...")
     if kill_cloudflared_processes():
@@ -385,14 +477,10 @@ def cmd_start():
     if kill_processes_on_port(8000):
         print("  - Stopped old server on port 8000")
 
-    # Start tunnel
-    print(f"\nStarting tunnel: {config.tunnel_url}")
-    tunnel_process = run_cloudflared_tunnel(config.tunnel_token)
-
-    # Print startup banner
+    # Print startup banner BEFORE daemonizing (so user sees it)
     sse_url = f"{config.tunnel_url}/sse"
     print("\n" + "=" * 60)
-    print("  Simple MCP Server - Running")
+    print("  Simple MCP Server - Starting")
     print("=" * 60)
     print(f"  User:    {config.email}")
     print(f"  SSE URL: {sse_url}")
@@ -404,26 +492,105 @@ def cmd_start():
     print("  Claude:  Add MCP integration > paste URL")
     print()
     print("=" * 60)
-    print("  Press Ctrl+C to stop")
+    print(f"  Log file: {LOG_FILE}")
+    print("  Use 'simple-mcp-server stop' to stop")
+    print("  Use 'simple-mcp-server status' to check status")
     print("=" * 60 + "\n")
 
+    # Daemonize on Unix, use subprocess on Windows
+    if platform.system() == "Windows":
+        # Windows: start in a new process
+        script_path = Path(__file__).resolve()
+        cmd = [sys.executable, str(script_path), "_daemon"]
+        proc = subprocess.Popen(
+            cmd,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            stdout=open(LOG_FILE, 'a'),
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL
+        )
+        save_pid(proc.pid)
+        print(f"Server started in background (PID: {proc.pid})")
+    else:
+        # Unix: fork and daemonize
+        pid = os.fork()
+        if pid > 0:
+            # Parent process - wait a moment then exit
+            import time
+            time.sleep(1)  # Give child time to start
+            # Read the PID saved by child
+            child_pid = read_pid()
+            if child_pid:
+                print(f"Server started in background (PID: {child_pid})")
+            else:
+                print("Server started in background")
+            return
+
+        # Child process continues
+        os.setsid()
+        os.umask(0)
+
+        # Second fork
+        pid = os.fork()
+        if pid > 0:
+            sys.exit(0)
+
+        # Save our PID
+        save_pid(os.getpid())
+
+        # Redirect stdout/stderr to log file
+        sys.stdout.flush()
+        sys.stderr.flush()
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        log_fd = open(LOG_FILE, 'a')
+        os.dup2(log_fd.fileno(), sys.stdout.fileno())
+        os.dup2(log_fd.fileno(), sys.stderr.fileno())
+
+        # Run the server
+        _run_server(config)
+
+
+def _run_server(config):
+    """Internal function to run the server (called by daemon)."""
+    tunnel_process = None
+
+    def signal_handler(sig, frame):
+        if tunnel_process:
+            tunnel_process.terminate()
+            tunnel_process.wait()
+        clear_pid()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Start tunnel
+    tunnel_process = run_cloudflared_tunnel(config.tunnel_token)
+
     try:
-        uvicorn.run("main:app", host="0.0.0.0", port=8000)
+        uvicorn.run("main:app", host="0.0.0.0", port=8000, log_level="info")
     finally:
         if tunnel_process:
             tunnel_process.terminate()
             tunnel_process.wait()
+        clear_pid()
 
 
 def cmd_stop():
     """Stop the MCP server and tunnel."""
     print("Stopping MCP server...")
 
+    # Try to stop daemon first
+    stopped_daemon = stop_daemon()
+    if stopped_daemon:
+        print("  - Daemon stopped")
+
+    # Also clean up any orphaned processes
     stopped_server = kill_processes_on_port(8000)
     stopped_tunnel = kill_cloudflared_processes()
 
-    if stopped_server or stopped_tunnel:
-        if stopped_server:
+    if stopped_daemon or stopped_server or stopped_tunnel:
+        if stopped_server and not stopped_daemon:
             print("  - Server stopped")
         if stopped_tunnel:
             print("  - Tunnel stopped")
@@ -477,8 +644,12 @@ def cmd_status():
 
     # Server
     print("\n[Server]")
-    if is_server_running():
-        print("  Status:   Running on port 8000")
+    running, pid = is_daemon_running()
+    if running:
+        print(f"  Status:   Running (PID: {pid})")
+        print(f"  Log:      {LOG_FILE}")
+    elif is_server_running():
+        print("  Status:   Running on port 8000 (not managed)")
     else:
         print("  Status:   Not running")
 
@@ -544,7 +715,7 @@ USAGE:
     simple-mcp-server <command>
 
 COMMANDS:
-    start       Start the MCP server (default if no command given)
+    start       Start the MCP server in background
     stop        Stop the running server and tunnel
     restart     Restart the server
     status      Show current status and configuration
@@ -553,28 +724,24 @@ COMMANDS:
     help        Show this help message
 
 EXAMPLES:
-    # First run - will prompt for login and tunnel setup
+    # Start server (runs in background)
     simple-mcp-server start
 
-    # Check if server is running
+    # Check server status
     simple-mcp-server status
 
     # Stop the server
     simple-mcp-server stop
 
-    # Restart after making changes
-    simple-mcp-server restart
-
-    # Log out and reconfigure
-    simple-mcp-server logout
-    simple-mcp-server start
+    # View logs
+    tail -f ~/.simple-mcp-server/server.log
 
 QUICK START:
     1. Run 'simple-mcp-server start'
     2. Log in via browser (opens automatically)
     3. Enter a robot name (e.g., 'myrobot')
-    4. Server starts at https://myrobot.robotmcp.ai
-    5. Add to ChatGPT/Claude using the /sse endpoint
+    4. Server starts in background at https://myrobot.robotmcp.ai
+    5. Copy the SSE URL to ChatGPT/Claude
 
 For more information, see: https://github.com/mokcontoro/simple_mcp_server
 """)
@@ -584,6 +751,13 @@ For more information, see: https://github.com/mokcontoro/simple_mcp_server
 
 def main():
     """Main entry point for CLI."""
+    # Internal command for Windows daemon subprocess
+    if len(sys.argv) > 1 and sys.argv[1] == "_daemon":
+        config = load_config()
+        if config.is_valid() and config.has_tunnel():
+            _run_server(config)
+        return
+
     parser = argparse.ArgumentParser(
         prog="simple-mcp-server",
         description="Simple MCP Server - Local MCP server with OAuth",
