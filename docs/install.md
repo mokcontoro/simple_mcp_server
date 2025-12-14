@@ -1,0 +1,313 @@
+# Installation Guide
+
+**Copyright (c) 2024 Contoro. All rights reserved.**
+
+This guide covers installing and using simple-mcp-server on your local machine.
+
+---
+
+## Prerequisites
+
+Before installing, ensure you have:
+
+1. **Python 3.10+** - Check with `python --version`
+2. **Git** - For cloning the repository
+3. **cloudflared** - Cloudflare tunnel client
+
+### Installing cloudflared
+
+**Windows (winget):**
+```powershell
+winget install cloudflare.cloudflared
+```
+
+**Windows (manual):**
+Download from: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/
+
+**macOS:**
+```bash
+brew install cloudflared
+```
+
+**Linux:**
+```bash
+# Debian/Ubuntu
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared focal main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt update && sudo apt install cloudflared
+```
+
+Verify installation:
+```bash
+cloudflared --version
+```
+
+---
+
+## Installation
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/mokcontoro/simple_mcp_server.git
+cd simple_mcp_server
+```
+
+### Step 2: Create Virtual Environment
+
+**Windows:**
+```powershell
+python -m venv venv
+venv\Scripts\activate
+```
+
+**macOS/Linux:**
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
+### Step 3: Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### Step 4: Configure Environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your Supabase credentials:
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_JWT_SECRET=your-jwt-secret
+```
+
+---
+
+## First Run
+
+Start the server for the first time:
+
+```bash
+python cli.py
+```
+
+This will:
+1. **Open browser** for login/signup via Supabase
+2. **Prompt for robot name** (e.g., `myrobot` becomes `myrobot.robotmcp.ai`)
+3. **Create Cloudflare tunnel** automatically
+4. **Save configuration** to `~/.simple-mcp-server/config.json`
+5. **Start the MCP server** on port 8000
+
+You'll see a startup banner like this:
+```
+==================================================
+  Simple MCP Server
+==================================================
+  User:   you@example.com
+  URL:    https://myrobot.robotmcp.ai
+  SSE:    https://myrobot.robotmcp.ai/sse
+==================================================
+  Press Ctrl+C to stop
+==================================================
+```
+
+---
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `python cli.py` | Start the server (default) |
+| `python cli.py start` | Start the server |
+| `python cli.py stop` | Stop server and tunnel |
+| `python cli.py restart` | Restart the server |
+| `python cli.py status` | Show current status |
+| `python cli.py logout` | Clear credentials and stop |
+| `python cli.py version` | Show version info |
+| `python cli.py help` | Show detailed help |
+
+### Legacy Flag Support
+
+For backward compatibility, these flags also work:
+```bash
+python cli.py --status
+python cli.py --stop
+python cli.py --logout
+python cli.py --version
+```
+
+---
+
+## Connecting MCP Clients
+
+### ChatGPT
+
+1. Go to **Settings > Connectors > Add**
+2. Enter MCP Server URL: `https://your-robot.robotmcp.ai/sse`
+3. Select **OAuth** authentication
+4. Log in with your Supabase account
+
+### Claude.ai
+
+1. Add as an MCP integration
+2. Use SSE endpoint: `https://your-robot.robotmcp.ai/sse`
+3. Complete OAuth flow when prompted
+4. Log in with your Supabase account
+
+**Important:** Only the server creator can connect. Other users will receive a `403 Forbidden` error.
+
+---
+
+## Available MCP Tools
+
+Once connected, you can use these tools:
+
+### echo
+Echoes back your message.
+```
+Input: "Hello, world!"
+Output: "Echo: Hello, world!"
+```
+
+### ping
+Tests connectivity to the server.
+```
+Output: "pong from owner's MCP server"
+```
+
+---
+
+## Configuration
+
+Configuration is stored in `~/.simple-mcp-server/config.json`:
+
+```json
+{
+  "user_id": "uuid",
+  "email": "you@example.com",
+  "access_token": "...",
+  "refresh_token": "...",
+  "robot_name": "myrobot",
+  "tunnel_url": "https://myrobot.robotmcp.ai",
+  "tunnel_token": "..."
+}
+```
+
+To view your current configuration:
+```bash
+python cli.py status
+```
+
+---
+
+## Troubleshooting
+
+### cloudflared Windows Service Conflict
+
+If cloudflared is installed as a Windows service, it may intercept tunnel traffic:
+
+```powershell
+# Check status
+python cli.py status
+
+# Stop service (Admin Command Prompt)
+net stop cloudflared
+
+# Or permanently uninstall the service
+cloudflared service uninstall
+```
+
+### Port 8000 Already in Use
+
+The CLI automatically cleans up old processes. If issues persist:
+
+```powershell
+# Stop via CLI
+python cli.py stop
+
+# Or manually find and kill
+netstat -ano | findstr :8000
+taskkill /F /PID <pid>
+```
+
+### Server Not Accessible via Tunnel
+
+1. Check cloudflared is installed: `cloudflared --version`
+2. Check tunnel status: `python cli.py status`
+3. Ensure no Windows service conflict (see above)
+4. Try restarting: `python cli.py restart`
+
+### OAuth Login Issues
+
+1. Clear credentials: `python cli.py logout`
+2. Start fresh: `python cli.py start`
+3. Check `.env` file has correct Supabase credentials
+
+### "Access denied: not authorized for this server"
+
+This 403 error means you're trying to connect with a different account than the server creator. Only the user who ran the initial setup can connect via MCP clients.
+
+---
+
+## Updating
+
+To update to the latest version:
+
+```bash
+cd simple_mcp_server
+git pull
+pip install -r requirements.txt
+python cli.py restart
+```
+
+---
+
+## Uninstalling
+
+1. Stop the server:
+   ```bash
+   python cli.py stop
+   ```
+
+2. Remove configuration:
+   ```bash
+   python cli.py logout
+   ```
+
+3. Delete the repository:
+   ```bash
+   cd ..
+   rm -rf simple_mcp_server
+   ```
+
+4. (Optional) Remove virtual environment if created outside the repo.
+
+---
+
+## API Endpoints
+
+For developers integrating with the server:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Server info |
+| `/health` | GET | Health check |
+| `/sse` | GET | MCP SSE connection (requires auth) |
+| `/message` | POST | MCP message handler (requires auth) |
+| `/.well-known/oauth-authorization-server` | GET | OAuth metadata |
+| `/.well-known/oauth-protected-resource` | GET | Resource metadata |
+| `/register` | POST | Dynamic client registration |
+| `/authorize` | GET | OAuth authorization |
+| `/token` | POST | OAuth token exchange |
+
+---
+
+## Support
+
+For issues and feature requests, visit:
+https://github.com/mokcontoro/simple_mcp_server/issues
