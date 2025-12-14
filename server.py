@@ -94,12 +94,16 @@ def get_server_url() -> str:
 
 
 def verify_token(token: str) -> dict[str, Any]:
-    """Verify an access token against Supabase.
+    """Verify an access token and check authorization.
 
-    For local server, we validate tokens directly with Supabase.
+    For local server, we validate tokens directly with Supabase,
+    then verify the user is authorized to access this server.
     """
+    # Get server creator's user_id for authorization check
+    creator_user_id = local_config.user_id
+
     if not supabase:
-        # If Supabase not configured, accept local user's token
+        # If Supabase not configured, accept local user's token only
         if local_config.is_valid() and token == local_config.access_token:
             return {
                 "user_id": local_config.user_id,
@@ -112,11 +116,19 @@ def verify_token(token: str) -> dict[str, Any]:
         # Validate JWT with Supabase
         user = supabase.auth.get_user(token)
         if user and user.user:
+            # Authorization check: is this user allowed to access this server?
+            if creator_user_id and user.user.id != creator_user_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied: not authorized for this server"
+                )
             return {
                 "user_id": user.user.id,
                 "email": user.user.email,
                 "scope": "mcp:tools"
             }
+    except HTTPException:
+        raise  # Re-raise 403 errors
     except Exception:
         pass
 
@@ -132,6 +144,14 @@ def unauthorized_response(error_description: str) -> JSONResponse:
         headers={
             "WWW-Authenticate": f'Bearer resource_metadata="{server_url}/.well-known/oauth-protected-resource"'
         }
+    )
+
+
+def forbidden_response(error_description: str) -> JSONResponse:
+    """Return 403 Forbidden response for unauthorized access."""
+    return JSONResponse(
+        {"error": "forbidden", "error_description": error_description},
+        status_code=403
     )
 
 
@@ -199,7 +219,9 @@ async def sse_endpoint(request: Request) -> Response:
 
     try:
         verify_token(token)
-    except HTTPException:
+    except HTTPException as e:
+        if e.status_code == 403:
+            return forbidden_response(e.detail)
         return unauthorized_response("Invalid or expired token")
 
     async with sse_transport.connect_sse(
@@ -224,7 +246,9 @@ async def message_endpoint(request: Request) -> Response:
 
     try:
         verify_token(token)
-    except HTTPException:
+    except HTTPException as e:
+        if e.status_code == 403:
+            return forbidden_response(e.detail)
         return unauthorized_response("Invalid or expired token")
 
     return await sse_transport.handle_post_message(
