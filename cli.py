@@ -7,12 +7,15 @@ On first run, it opens a browser for login via Railway.
 """
 import argparse
 import os
+import platform
 import shutil
 import signal
 import subprocess
 import sys
-import uvicorn
+from pathlib import Path
 
+import requests
+import uvicorn
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -20,9 +23,13 @@ from config import load_config, clear_config, CONFIG_FILE
 
 load_dotenv()
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+
+# Cloudflared auto-install settings
+CLOUDFLARED_INSTALL_DIR = Path.home() / ".local" / "bin"
+CLOUDFLARED_RELEASES_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download"
 
 
 # ============== Helper Functions ==============
@@ -55,7 +62,6 @@ def check_cloudflared() -> bool:
 
 def check_cloudflared_service() -> bool:
     """Check if cloudflared is running as a Windows service."""
-    import platform
     if platform.system() != "Windows":
         return False
     try:
@@ -71,7 +77,6 @@ def check_cloudflared_service() -> bool:
 
 def is_server_running() -> bool:
     """Check if MCP server is already running on port 8000."""
-    import platform
     if platform.system() == "Windows":
         try:
             result = subprocess.run(
@@ -99,8 +104,9 @@ def is_server_running() -> bool:
 
 def run_cloudflared_tunnel(tunnel_token: str) -> subprocess.Popen:
     """Start cloudflared tunnel in background."""
+    cloudflared_cmd = get_cloudflared_path()
     return subprocess.Popen(
-        ["cloudflared", "tunnel", "run", "--token", tunnel_token],
+        [cloudflared_cmd, "tunnel", "run", "--token", tunnel_token],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
@@ -108,7 +114,6 @@ def run_cloudflared_tunnel(tunnel_token: str) -> subprocess.Popen:
 
 def kill_cloudflared_processes():
     """Kill any running cloudflared processes started by this CLI."""
-    import platform
     killed = False
     if platform.system() == "Windows":
         try:
@@ -132,7 +137,6 @@ def kill_cloudflared_processes():
 
 def kill_processes_on_port(port: int) -> bool:
     """Kill any processes listening on the specified port."""
-    import platform
     killed = False
     if platform.system() == "Windows":
         try:
@@ -172,6 +176,99 @@ def kill_processes_on_port(port: int) -> bool:
     return killed
 
 
+def get_cloudflared_binary_name() -> str | None:
+    """Get the correct cloudflared binary name for this platform."""
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if system == "linux":
+        if machine in ("x86_64", "amd64"):
+            return "cloudflared-linux-amd64"
+        elif machine in ("aarch64", "arm64"):
+            return "cloudflared-linux-arm64"
+        elif machine.startswith("arm"):
+            return "cloudflared-linux-arm"
+    elif system == "darwin":
+        if machine in ("arm64", "aarch64"):
+            return "cloudflared-darwin-arm64"
+        else:
+            return "cloudflared-darwin-amd64"
+
+    return None  # Windows or unsupported
+
+
+def install_cloudflared() -> bool:
+    """Auto-download cloudflared for Linux/macOS."""
+    binary_name = get_cloudflared_binary_name()
+    if not binary_name:
+        return False
+
+    url = f"{CLOUDFLARED_RELEASES_URL}/{binary_name}"
+    dest = CLOUDFLARED_INSTALL_DIR / "cloudflared"
+
+    print("Downloading cloudflared...")
+    print(f"  From: {url}")
+    print(f"  To:   {dest}")
+
+    try:
+        CLOUDFLARED_INSTALL_DIR.mkdir(parents=True, exist_ok=True)
+
+        response = requests.get(url, stream=True, timeout=60)
+        response.raise_for_status()
+
+        with open(dest, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        # Make executable
+        dest.chmod(0o755)
+
+        print("  Done!")
+        return True
+    except Exception as e:
+        print(f"  Failed: {e}")
+        return False
+
+
+def get_cloudflared_path() -> str:
+    """Get the path to cloudflared binary."""
+    # Check system PATH first
+    system_path = shutil.which("cloudflared")
+    if system_path:
+        return system_path
+
+    # Check ~/.local/bin
+    local_path = CLOUDFLARED_INSTALL_DIR / "cloudflared"
+    if local_path.exists():
+        return str(local_path)
+
+    return "cloudflared"  # Fallback
+
+
+def ensure_cloudflared() -> bool:
+    """Ensure cloudflared is available, auto-install if needed."""
+    # Check system PATH
+    if check_cloudflared():
+        return True
+
+    # Check if in ~/.local/bin but not in PATH
+    local_bin = CLOUDFLARED_INSTALL_DIR / "cloudflared"
+    if local_bin.exists():
+        print(f"\n[INFO] cloudflared found at {local_bin}")
+        print(f"  Add to PATH: export PATH=\"$HOME/.local/bin:$PATH\"")
+        return True
+
+    # Auto-install on Linux/macOS
+    if platform.system() in ("Linux", "Darwin"):
+        print("\n[INFO] cloudflared not found. Installing automatically...")
+        if install_cloudflared():
+            print(f"\n[INFO] Add to PATH: export PATH=\"$HOME/.local/bin:$PATH\"")
+            print("  Or add to ~/.bashrc for permanent PATH update.\n")
+            return True
+
+    return False
+
+
 # ============== CLI Commands ==============
 
 def cmd_start():
@@ -197,10 +294,10 @@ def cmd_start():
         print("  Then: simple-mcp-server start")
         sys.exit(1)
 
-    # Check cloudflared
-    if not check_cloudflared():
-        print("\n[ERROR] cloudflared not found.")
-        print("  Install from: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/")
+    # Check cloudflared (auto-install on Linux/macOS if needed)
+    if not ensure_cloudflared():
+        print("\n[ERROR] cloudflared not found and auto-install failed.")
+        print("  Install manually: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/")
         sys.exit(1)
 
     # Warn about cloudflared service
@@ -328,13 +425,17 @@ def cmd_status():
 
     # Cloudflared
     print("\n[Cloudflared]")
+    local_bin = CLOUDFLARED_INSTALL_DIR / "cloudflared"
     if check_cloudflared():
-        print(f"  Status:   Installed")
+        print(f"  Status:   Installed (system)")
         print(f"  Path:     {shutil.which('cloudflared')}")
         if check_cloudflared_service():
             print("  Service:  RUNNING (may cause conflicts!)")
         else:
             print("  Service:  Not running")
+    elif local_bin.exists():
+        print(f"  Status:   Installed (local)")
+        print(f"  Path:     {local_bin}")
     else:
         print("  Status:   Not installed")
         print("  Install:  https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/")

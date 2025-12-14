@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simple-mcp-server"
-version = "1.2.0"
+version = "1.3.0"
 description = "MCP server with OAuth 2.1, Supabase auth, Cloudflare tunnel, and creator-only access control"
 readme = "README.md"
 license = {text = "Proprietary - Copyright (c) 2024 Contoro. All rights reserved."}

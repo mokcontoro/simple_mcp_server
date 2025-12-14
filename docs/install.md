@@ -6,15 +6,46 @@ This guide covers installing and using simple-mcp-server on your local machine.
 
 ---
 
-## Prerequisites
+## Quick Install (Linux/macOS)
+
+One-line installation with automatic cloudflared download:
+
+```bash
+pipx install simple-mcp-server
+```
+
+Then run:
+```bash
+simple-mcp-server
+```
+
+On first run:
+- cloudflared will **auto-download** if not found (to `~/.local/bin/`)
+- Browser opens for login/signup
+- You'll be prompted for a robot name
+- Server starts at `https://yourname.robotmcp.ai`
+
+**Note:** You may need to add `~/.local/bin` to your PATH:
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+# Add to ~/.bashrc for permanent PATH update
+```
+
+---
+
+## Manual Installation
+
+For development or Windows users, follow these steps.
+
+### Prerequisites
 
 Before installing, ensure you have:
 
 1. **Python 3.10+** - Check with `python --version`
 2. **Git** - For cloning the repository
-3. **cloudflared** - Cloudflare tunnel client
+3. **cloudflared** - Cloudflare tunnel client (auto-downloads on Linux/macOS, manual install on Windows)
 
-### Installing cloudflared
+### Installing cloudflared (Windows only, optional for Linux/macOS)
 
 **Windows (winget):**
 ```powershell
@@ -24,17 +55,20 @@ winget install cloudflare.cloudflared
 **Windows (manual):**
 Download from: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/
 
-**macOS:**
+**macOS (optional - auto-downloads on first run):**
 ```bash
 brew install cloudflared
 ```
 
-**Linux:**
+**Linux (optional - auto-downloads on first run):**
 ```bash
-# Debian/Ubuntu
-curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
-echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared focal main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
-sudo apt update && sudo apt install cloudflared
+# Debian/Ubuntu (if you prefer system install)
+wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo apt install ./cloudflared-linux-amd64.deb
+
+# Or direct binary (no sudo needed)
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o ~/.local/bin/cloudflared
+chmod +x ~/.local/bin/cloudflared
 ```
 
 Verify installation:
