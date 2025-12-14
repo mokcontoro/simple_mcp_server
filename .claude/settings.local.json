@@ -36,7 +36,14 @@
       "Bash(git rm:*)",
       "Bash(where:*)",
       "Bash(cmd //c \"where cloudflared\")",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(railway status:*)",
+      "Bash(railway up)",
+      "Bash(tasklist:*)",
+      "Bash(cmd //c \"taskkill /F /PID 33860\")",
+      "Bash(nslookup:*)",
+      "Bash(ipconfig:*)",
+      "Bash(git tag:*)"
     ]
   }
 }

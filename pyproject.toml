@@ -7,13 +7,13 @@ name = "simple-mcp-server"
 version = "1.2.0"
 description = "MCP server with OAuth 2.1, Supabase auth, Cloudflare tunnel, and creator-only access control"
 readme = "README.md"
-license = "MIT"
+license = {text = "Proprietary - Copyright (c) 2024 Contoro. All rights reserved."}
 requires-python = ">=3.10"
 keywords = ["mcp", "oauth", "supabase", "cloudflare", "chatgpt", "claude"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

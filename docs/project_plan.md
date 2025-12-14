@@ -1,5 +1,11 @@
 # Project Plan: simple-mcp-server
 
+**Copyright (c) 2024 Contoro. All rights reserved.**
+
+This software is proprietary and confidential. Unauthorized copying, modification, distribution, or use of this software is strictly prohibited without the express written permission of Contoro.
+
+---
+
 ## Architecture
 
 ```
@@ -15,12 +21,13 @@
           ▼                  ▼                  │
 ┌──────────────────┐  ┌──────────────────┐      │
 │ Local Computer   │  │     Railway      │      │
-│ (runs server.py) │  │ (runs railway.py)│      │
+│  (runs main.py)  │  │  (auth server)   │      │
 │                  │  │                  │      │
 │  • MCP server    │  │  • /cli-login    │      │
 │  • OAuth flow    │  │  • /cli-signup   │      │
-│  • MCP endpoints │  │  • Dashboard     │      │
-│  • Tools         │  │    (future)      │      │
+│  • MCP endpoints │  │  • /create-tunnel│      │
+│  • Tools         │  │  • Dashboard     │      │
+│  • Auth check    │  │    (future)      │      │
 └────────┬─────────┘  └──────────────────┘      │
          │                     ▲                │
          │ Cloudflare          │ Browser        │
@@ -28,14 +35,15 @@
          ▼                     │                │
 ┌──────────────────┐    ┌──────────────────┐    │
 │   MCP Client     │    │  CLI Installer   │────┘
-│ (ChatGPT, Claude)│    │  (setup.py)      │
+│ (ChatGPT, Claude)│    │  (cli.py)        │
 └──────────────────┘    └──────────────────┘
 ```
 
-- **Local Computer**: Runs MCP server (`server.py`), handles OAuth + MCP endpoints
+- **Local Computer**: Runs MCP server (`main.py`), handles OAuth + MCP endpoints, creator-only access control
 - **Supabase**: Auth backend, user accounts, token validation
-- **Railway**: CLI login pages only, future dashboard (NOT in MCP data path)
+- **Railway**: CLI login pages, tunnel creation API, future dashboard (NOT in MCP data path)
 - **MCP Client**: Connects directly to Local Computer via Cloudflare tunnel
+- **Cloudflare Tunnel**: Secure access via `{name}.robotmcp.ai`
 
 ---
 
@@ -52,35 +60,50 @@
 
 ---
 
-## Phase 2: Package & Local Testing 🔄 IN PROGRESS
+## Phase 2: Package & CLI ✅ COMPLETE
 
 | Task | Status |
 |------|--------|
 | pyproject.toml for pipx | ✅ Done |
 | cli.py entry point | ✅ Done |
-| Dockerfile.test | ✅ Done |
-| docker-compose.test.yml | ✅ Done |
-| Test pipx install in Docker | ⬚ TODO |
+| --status command | ✅ Done |
+| --stop command | ✅ Done |
+| --logout command | ✅ Done |
+| Process cleanup on startup | ✅ Done |
 
-**Milestone**: `pipx install .` works in Docker container
+**Milestone**: `python cli.py` manages server lifecycle
 
 ---
 
-## Phase 3: Installer & First-Run Setup ⬚ TODO
+## Phase 3: Installer & First-Run Setup ✅ COMPLETE
 
 | Task | Status |
 |------|--------|
-| First-run config detection | ⬚ TODO |
-| Browser-based OAuth login flow | ⬚ TODO |
-| Robot naming prompt | ⬚ TODO |
-| Cloudflare tunnel creation | ⬚ TODO |
-| Config saved to ~/.simple-mcp-server/ | ⬚ TODO |
+| First-run config detection | ✅ Done |
+| Browser-based OAuth login flow | ✅ Done |
+| Robot naming prompt | ✅ Done |
+| Cloudflare tunnel creation | ✅ Done |
+| Config saved to ~/.simple-mcp-server/ | ✅ Done |
+| Cloudflared service conflict detection | ✅ Done |
 
-**Milestone**: `simple-mcp-server` auto-configures on first run
+**Milestone**: `python cli.py` auto-configures on first run
 
 ---
 
-## Phase 4: Railway Dashboard ⬚ TODO
+## Phase 4: Access Control ✅ COMPLETE
+
+| Task | Status |
+|------|--------|
+| Creator-only access (user_id check) | ✅ Done |
+| Dynamic SERVER_URL from tunnel config | ✅ Done |
+| 403 Forbidden for unauthorized users | ✅ Done |
+| OAuth flow on local server | ✅ Done |
+
+**Milestone**: Only server creator can connect via MCP clients
+
+---
+
+## Phase 5: Railway Dashboard ⬚ TODO
 
 | Task | Status |
 |------|--------|
@@ -93,22 +116,30 @@
 
 ---
 
-## Phase 5: Integration & Production ⬚ TODO
+## Phase 6: Multi-User & Production ⬚ TODO
 
 | Task | Status |
 |------|--------|
-| Local server validates access via Supabase | ⬚ TODO |
 | Multi-user access to single robot | ⬚ TODO |
-| MCP client testing | ⬚ TODO |
-| Documentation | ⬚ TODO |
+| Allowed users list in config | ⬚ TODO |
+| MCP client testing (ChatGPT, Claude) | ⬚ TODO |
+| Documentation | ✅ Done |
 | PyPI publication | ⬚ TODO |
 
-**Milestone**: End-to-end flow works (client → tunnel → local)
+**Milestone**: End-to-end flow works with shared access
 
 ---
 
 ## Current Focus
 
-**Phase 2**: Complete Docker testing to validate pipx installation works correctly.
+**Phase 5**: Build Railway dashboard for robot management and access sharing.
 
-Next: `docker build -f Dockerfile.test -t mcp-test .`
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2024-12 | Initial release with OAuth 2.1 |
+| 1.1.0 | 2024-12 | CLI login, tunnel setup |
+| 1.2.0 | 2024-12 | Creator-only access control, CLI improvements |
