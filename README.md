@@ -35,17 +35,27 @@ A Model Context Protocol (MCP) server with OAuth 2.1 authentication, Supabase us
 
 ```
 simple_mcp_server/
-├── main.py              # FastAPI app, routes, server setup
+├── main.py              # FastAPI app entry point (~165 lines)
 ├── tools.py             # MCP tools (echo, ping) - easily replaceable
+├── sse.py               # Legacy SSE endpoints (/sse, /message)
+├── cli_endpoints.py     # CLI login endpoints (/cli-login, /cli-signup)
 ├── cli.py               # CLI daemon management
 ├── config.py            # Configuration management
 ├── oauth/               # OAuth module (optional)
 │   ├── __init__.py
+│   ├── endpoints.py     # OAuth routes (/authorize, /login, /token, etc.)
 │   ├── middleware.py    # MCPOAuthMiddleware for /mcp endpoint
 │   ├── stores.py        # In-memory token stores
 │   └── templates.py     # HTML login/signup pages
 └── pyproject.toml
 ```
+
+### For ros-mcp-server Merge
+
+To adapt for ros-mcp-server:
+1. Replace `tools.py` with ROS-specific MCP tools
+2. Set `ENABLE_OAUTH=false` to disable authentication
+3. Keep or remove CLI/tunnel components as needed
 
 ## Quick Start
 
