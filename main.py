@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from fastmcp import FastMCP
 from starlette.responses import Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware import Middleware
 from supabase import create_client, Client
 
 from config import load_config
@@ -111,20 +112,16 @@ def ping() -> str:
     return "pong from Mok's computer"
 
 
-# ============== OAuth Authentication Middleware ==============
+# ============== OAuth Authentication Middleware for MCP ==============
 
-class OAuthMiddleware(BaseHTTPMiddleware):
-    """Middleware to validate OAuth Bearer tokens for MCP endpoints."""
+class MCPOAuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to validate OAuth Bearer tokens for Streamable HTTP MCP endpoint."""
 
     async def dispatch(self, request: Request, call_next):
-        # Only check auth for MCP endpoints
-        path = request.url.path
-        if not path.startswith("/mcp"):
-            return await call_next(request)
-
         # Check Bearer token
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
+            logger.warning(f"[MCP-AUTH] No Bearer token in request to {request.url.path}")
             return JSONResponse(
                 {"error": "unauthorized", "error_description": "Missing or invalid Authorization header"},
                 status_code=401,
@@ -135,6 +132,7 @@ class OAuthMiddleware(BaseHTTPMiddleware):
         token_data = access_tokens.get(token)
 
         if not token_data or time.time() >= token_data.get("expires_at", 0):
+            logger.warning(f"[MCP-AUTH] Invalid or expired token")
             return JSONResponse(
                 {"error": "unauthorized", "error_description": "Invalid or expired token"},
                 status_code=401,
@@ -146,21 +144,32 @@ class OAuthMiddleware(BaseHTTPMiddleware):
         connecting_user_id = token_data.get("user_id")
 
         if creator_user_id and connecting_user_id != creator_user_id:
-            logger.warning(f"[AUTH] DENIED: {connecting_user_id} != {creator_user_id}")
+            logger.warning(f"[MCP-AUTH] DENIED: {connecting_user_id} != {creator_user_id}")
             return JSONResponse(
                 {"error": "forbidden", "error_description": "Access denied: not authorized for this server"},
                 status_code=403
             )
 
+        logger.warning(f"[MCP-AUTH] Authorized: {token_data.get('user_email')}")
         return await call_next(request)
 
 
-# ============== FastAPI App with OAuth ==============
+# ============== Streamable HTTP MCP App ==============
+# Create FastMCP app with OAuth middleware BEFORE FastAPI app
+# (We need the lifespan from mcp_http_app for FastAPI)
+mcp_http_app = mcp.http_app(
+    path="/",  # Route at root of mounted app
+    transport="streamable-http",
+    middleware=[Middleware(MCPOAuthMiddleware)]
+)
 
+# ============== FastAPI App with OAuth ==============
+# Pass MCP app's lifespan to FastAPI for proper initialization
 app = FastAPI(
     title="Simple MCP Server",
     description="A minimal MCP server with echo functionality and OAuth 2.1",
     version="2.0.0",
+    lifespan=mcp_http_app.lifespan,  # Required for FastMCP task group initialization
 )
 
 # Add CORS middleware for browser-based MCP client access
@@ -172,13 +181,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount FastMCP's Streamable HTTP app
-# FastMCP creates routes at /mcp internally, so mount at root
-mcp_app = mcp.http_app(transport="streamable-http")
-app.mount("", mcp_app)
-
-# Add OAuth middleware (applied after mount)
-app.add_middleware(OAuthMiddleware)
+# Mount MCP app at /mcp
+app.mount("/mcp", mcp_http_app)
 
 
 # ============== HTML Templates ==============
