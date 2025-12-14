@@ -3,8 +3,9 @@
 This server runs on the user's machine (local computer or robot).
 It handles:
 - MCP tools (echo, ping)
-- MCP protocol endpoints (/sse, /message)
+- MCP protocol endpoints via Streamable HTTP (/mcp)
 - OAuth flow for MCP clients (/authorize, /login, /token)
+- Legacy SSE endpoints for backward compatibility (/sse, /message)
 
 MCP clients (ChatGPT, Claude, etc.) connect directly to this server
 via Cloudflare tunnel. Railway is NOT involved in MCP traffic.
@@ -32,9 +33,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
-from mcp.server.fastmcp import FastMCP
-from mcp.server.sse import SseServerTransport
+from fastmcp import FastMCP
 from starlette.responses import Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from supabase import create_client, Client
 
 from config import load_config
@@ -55,6 +56,11 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 JWT_SECRET = os.getenv("JWT_SECRET", SUPABASE_JWT_SECRET or secrets.token_hex(32))
+
+# Transport configuration (aligned with ros-mcp-server)
+MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
+MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
+MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
 # Initialize Supabase client
 supabase: Client = None
@@ -77,8 +83,9 @@ access_tokens: dict[str, dict] = {}
 pending_authorizations: dict[str, dict] = {}  # session_id -> oauth params
 authenticated_sessions: dict[str, dict] = {}  # session_id -> user info
 
-# Create MCP server
-mcp = FastMCP("Echo Server")
+# ============== FastMCP Server (aligned with ros-mcp-server) ==============
+
+mcp = FastMCP("simple-mcp-server")
 
 
 @mcp.tool()
@@ -104,11 +111,56 @@ def ping() -> str:
     return "pong from Mok's computer"
 
 
-# Create FastAPI app
+# ============== OAuth Authentication Middleware ==============
+
+class OAuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to validate OAuth Bearer tokens for MCP endpoints."""
+
+    async def dispatch(self, request: Request, call_next):
+        # Only check auth for MCP endpoints
+        path = request.url.path
+        if not path.startswith("/mcp"):
+            return await call_next(request)
+
+        # Check Bearer token
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                {"error": "unauthorized", "error_description": "Missing or invalid Authorization header"},
+                status_code=401,
+                headers={"WWW-Authenticate": f'Bearer resource_metadata="{SERVER_URL}/.well-known/oauth-protected-resource"'}
+            )
+
+        token = auth_header[7:]
+        token_data = access_tokens.get(token)
+
+        if not token_data or time.time() >= token_data.get("expires_at", 0):
+            return JSONResponse(
+                {"error": "unauthorized", "error_description": "Invalid or expired token"},
+                status_code=401,
+                headers={"WWW-Authenticate": f'Bearer resource_metadata="{SERVER_URL}/.well-known/oauth-protected-resource"'}
+            )
+
+        # Check authorization (creator-only access)
+        creator_user_id = local_config.user_id
+        connecting_user_id = token_data.get("user_id")
+
+        if creator_user_id and connecting_user_id != creator_user_id:
+            logger.warning(f"[AUTH] DENIED: {connecting_user_id} != {creator_user_id}")
+            return JSONResponse(
+                {"error": "forbidden", "error_description": "Access denied: not authorized for this server"},
+                status_code=403
+            )
+
+        return await call_next(request)
+
+
+# ============== FastAPI App with OAuth ==============
+
 app = FastAPI(
     title="Simple MCP Server",
     description="A minimal MCP server with echo functionality and OAuth 2.1",
-    version="1.2.0",
+    version="2.0.0",
 )
 
 # Add CORS middleware for browser-based MCP client access
@@ -120,8 +172,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# SSE transport for MCP
-sse_transport = SseServerTransport("/message")
+# Mount FastMCP's Streamable HTTP app at /mcp
+mcp_app = mcp.http_app(transport="streamable-http", path="/mcp")
+app.mount("/mcp", mcp_app)
+
+# Add OAuth middleware (applied after mount)
+app.add_middleware(OAuthMiddleware)
 
 
 # ============== HTML Templates ==============
@@ -706,13 +762,53 @@ async def token(
     return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
 
 
-def verify_access_token(token: str) -> dict[str, Any]:
-    """Verify an access token."""
-    if token in access_tokens:
-        token_data = access_tokens[token]
-        if time.time() < token_data["expires_at"]:
-            return token_data
-    raise HTTPException(status_code=401, detail="Invalid or expired token")
+# ============== Server Info Endpoints ==============
+
+@app.get("/debug/create-test-token")
+async def debug_create_test_token(user_id: str = "test-user-wrong", email: str = "wrong@test.com"):
+    """DEBUG: Create a test token for authorization testing."""
+    test_token = f"test-token-{secrets.token_hex(8)}"
+    access_tokens[test_token] = {
+        "client_id": "test-client",
+        "scope": "mcp:tools",
+        "user_id": user_id,
+        "user_email": email,
+        "created_at": int(time.time()),
+        "expires_at": int(time.time()) + 3600
+    }
+    logger.warning(f"[DEBUG] Created test token for user_id={user_id}, email={email}")
+    return {"token": test_token, "user_id": user_id, "email": email}
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Railway."""
+    return {"status": "healthy", "service": "mcp-server", "transport": MCP_TRANSPORT}
+
+
+@app.get("/")
+async def root():
+    """Root endpoint with server info."""
+    return {
+        "name": "Simple MCP Server",
+        "version": "2.0.0",
+        "transport": MCP_TRANSPORT,
+        "mcp_endpoint": "/mcp",
+        "legacy_sse_endpoint": "/sse",
+        "tools": ["echo", "ping"],
+        "oauth": {
+            "protected_resource": f"{SERVER_URL}/.well-known/oauth-protected-resource",
+            "authorization_server": f"{SERVER_URL}/.well-known/oauth-authorization-server"
+        }
+    }
+
+
+# ============== Legacy SSE Endpoints (backward compatibility) ==============
+# These endpoints maintain compatibility with older MCP clients that use SSE transport
+
+from mcp.server.sse import SseServerTransport
+
+sse_transport = SseServerTransport("/message")
 
 
 def unauthorized_response(error_description: str) -> JSONResponse:
@@ -735,27 +831,18 @@ def forbidden_response(error_description: str) -> JSONResponse:
 
 
 def check_authorization(token_data: dict) -> bool:
-    """Check if the token belongs to an authorized user.
-
-    Returns True if authorized, raises HTTPException if not.
-    """
+    """Check if the token belongs to an authorized user."""
     creator_user_id = local_config.user_id
     connecting_user_id = token_data.get("user_id")
 
     logger.warning(f"[AUTH] ========== AUTHORIZATION CHECK ==========")
-    logger.warning(f"[AUTH] local_config.is_valid(): {local_config.is_valid()}")
-    logger.warning(f"[AUTH] local_config.email: {local_config.email}")
     logger.warning(f"[AUTH] Creator user_id: {creator_user_id}")
     logger.warning(f"[AUTH] Connecting user_id: {connecting_user_id}")
-    logger.warning(f"[AUTH] token_data keys: {list(token_data.keys())}")
-    logger.warning(f"[AUTH] token_data user_email: {token_data.get('user_email')}")
 
-    # If no creator configured, allow all authenticated users
     if not creator_user_id:
         logger.warning("[AUTH] WARNING: No creator configured, allowing access")
         return True
 
-    # Check if connecting user matches creator
     if connecting_user_id != creator_user_id:
         logger.warning(f"[AUTH] DENIED: {connecting_user_id} != {creator_user_id}")
         raise HTTPException(
@@ -767,80 +854,24 @@ def check_authorization(token_data: dict) -> bool:
     return True
 
 
-# ============== MCP Endpoints ==============
-
-@app.get("/debug/create-test-token")
-async def debug_create_test_token(user_id: str = "test-user-wrong", email: str = "wrong@test.com"):
-    """DEBUG: Create a test token for authorization testing."""
-    test_token = f"test-token-{secrets.token_hex(8)}"
-    access_tokens[test_token] = {
-        "client_id": "test-client",
-        "scope": "mcp:tools",
-        "user_id": user_id,
-        "user_email": email,
-        "created_at": int(time.time()),
-        "expires_at": int(time.time()) + 3600
-    }
-    logger.warning(f"[DEBUG] Created test token for user_id={user_id}, email={email}")
-    return {"token": test_token, "user_id": user_id, "email": email}
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for Railway."""
-    return {"status": "healthy", "service": "mcp-echo-server"}
-
-
-@app.get("/")
-async def root():
-    """Root endpoint with server info."""
-    return {
-        "name": "Simple MCP Server",
-        "version": "1.0.0",
-        "mcp_endpoint": "/sse",
-        "tools": ["echo", "ping"],
-        "oauth": {
-            "protected_resource": f"{SERVER_URL}/.well-known/oauth-protected-resource",
-            "authorization_server": f"{SERVER_URL}/.well-known/oauth-authorization-server"
-        }
-    }
-
-
 @app.get("/sse")
 async def sse_endpoint(request: Request) -> Response:
-    """SSE endpoint for MCP client connections."""
-    logger.warning(f"[SSE] ========== SSE ENDPOINT HIT ==========")
-    # Verify auth token - MCP clients need proper 401 with WWW-Authenticate header
+    """Legacy SSE endpoint for MCP client connections (backward compatibility)."""
+    logger.warning(f"[SSE] ========== LEGACY SSE ENDPOINT HIT ==========")
     auth_header = request.headers.get("Authorization", "")
-    logger.warning(f"[SSE] Auth header present: {bool(auth_header)}")
 
     if not auth_header.startswith("Bearer "):
-        logger.warning(f"[SSE] No Bearer token, returning 401")
         return unauthorized_response("Missing or invalid Authorization header")
 
     token = auth_header[7:]
-    logger.warning(f"[SSE] Token (first 20 chars): {token[:20]}...")
-    logger.warning(f"[SSE] Number of access_tokens in memory: {len(access_tokens)}")
+    token_data = access_tokens.get(token)
 
-    token_data = None
-    if token in access_tokens:
-        token_data = access_tokens[token]
-        logger.warning(f"[SSE] Token found in access_tokens")
-        if time.time() >= token_data["expires_at"]:
-            logger.warning(f"[SSE] Token expired")
-            token_data = None
-
-    if not token_data:
-        logger.warning(f"[SSE] No valid token_data, returning 401")
+    if not token_data or time.time() >= token_data.get("expires_at", 0):
         return unauthorized_response("Invalid or expired token")
 
-    logger.warning(f"[SSE] Token valid, checking authorization...")
-
-    # Check if user is authorized to access this server
     try:
         check_authorization(token_data)
     except HTTPException as e:
-        logger.warning(f"[SSE] Authorization failed: {e.detail}")
         return forbidden_response(e.detail)
 
     logger.warning(f"[SSE] Authorization passed, starting MCP session")
@@ -857,56 +888,32 @@ async def sse_endpoint(request: Request) -> Response:
 
 @app.post("/message")
 async def message_endpoint(request: Request) -> Response:
-    """Handle MCP messages via POST."""
-    # Verify auth token - MCP clients need proper 401 with WWW-Authenticate header
+    """Legacy message endpoint for SSE transport (backward compatibility)."""
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header.startswith("Bearer "):
         return unauthorized_response("Missing or invalid Authorization header")
 
     token = auth_header[7:]
-    token_data = None
-    if token in access_tokens:
-        token_data = access_tokens[token]
-        if time.time() >= token_data["expires_at"]:
-            token_data = None
+    token_data = access_tokens.get(token)
 
-    if not token_data:
+    if not token_data or time.time() >= token_data.get("expires_at", 0):
         return unauthorized_response("Invalid or expired token")
 
-    # Check if user is authorized to access this server
     try:
         check_authorization(token_data)
     except HTTPException as e:
         return forbidden_response(e.detail)
 
-    # handle_post_message sends response directly via request._send
-    # Don't return its result to avoid duplicate response
     await sse_transport.handle_post_message(
         request.scope, request.receive, request._send
     )
     return Response()
 
 
-# Dual routes for /mcp/* paths (MCP client compatibility)
-@app.get("/mcp/sse")
-async def mcp_sse_endpoint(request: Request) -> Response:
-    """SSE endpoint for MCP client connections (alternative path)."""
-    return await sse_endpoint(request)
-
-
-@app.post("/mcp/message")
-async def mcp_message_endpoint(request: Request) -> Response:
-    """Handle MCP messages via POST (alternative path)."""
-    return await message_endpoint(request)
-
-
 # ============== CLI Login Endpoints (for Railway) ==============
-# These endpoints are used by the CLI installer during first-run setup.
-# The CLI opens a browser to Railway, user logs in, then gets redirected
-# back to the local CLI with tokens.
 
-cli_sessions: dict[str, dict] = {}  # session_id -> {port, created_at, expires_at}
+cli_sessions: dict[str, dict] = {}
 
 CLI_LOGIN_PAGE = """
 <!DOCTYPE html>
@@ -1155,7 +1162,6 @@ async def cli_signup_submit(
         return RedirectResponse(url=f"/cli-login?session={session}&port={port}", status_code=302)
 
     try:
-        # Build user metadata
         user_metadata = {"name": name.strip()}
         if organization.strip():
             user_metadata["organization"] = organization.strip()
@@ -1180,3 +1186,13 @@ async def cli_signup_submit(
         else:
             error_html = f'<div class="error">Signup failed: {error_msg}</div>'
         return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+
+
+# ============== Main Entry Point ==============
+
+if __name__ == "__main__":
+    import uvicorn
+    logger.info(f"Starting MCP server with transport: {MCP_TRANSPORT}")
+    logger.info(f"Streamable HTTP endpoint: /mcp")
+    logger.info(f"Legacy SSE endpoint: /sse")
+    uvicorn.run(app, host=MCP_HOST, port=MCP_PORT)

@@ -5,11 +5,14 @@ A Model Context Protocol (MCP) server with OAuth 2.1 authentication, Supabase us
 ## Features
 
 - **MCP Tools**: Echo and Ping tools for testing connectivity
+- **Streamable HTTP Transport**: Modern MCP transport (spec 2025-03-26) at `/mcp`
+- **Legacy SSE Support**: Backward compatible SSE transport at `/sse`
 - **OAuth 2.1**: Full OAuth flow with PKCE support and dynamic client registration
 - **Supabase Auth**: User authentication via Supabase
 - **Cloudflare Tunnel**: Secure access to your local server via `{name}.robotmcp.ai`
 - **Creator-Only Access**: Only the server creator can connect (authorization check)
 - **Multi-Platform**: Works with ChatGPT and Claude.ai
+- **FastMCP Framework**: Aligned with ros-mcp-server for future merge compatibility
 
 ## Architecture
 
@@ -99,8 +102,10 @@ This prevents others from using your MCP server even if they have a Supabase acc
 ### MCP Endpoints
 | Endpoint | Description |
 |----------|-------------|
-| `GET /sse` | MCP SSE connection (requires auth) |
-| `POST /message` | MCP message handler (requires auth) |
+| `POST /mcp` | Streamable HTTP transport (new, recommended) |
+| `GET /mcp` | Streamable HTTP SSE stream |
+| `GET /sse` | Legacy SSE connection (backward compat) |
+| `POST /message` | Legacy SSE message handler (backward compat) |
 
 ### OAuth 2.1 Endpoints
 | Endpoint | Description |
