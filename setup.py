@@ -205,30 +205,38 @@ def run_login_flow() -> bool:
         print(f"    refresh_token: {refresh[:20] + '...' if refresh else '(none)'}")
         print()
 
-        # Prompt for robot name and create tunnel
-        robot_name = prompt_robot_name()
-        print(f"\nCreating tunnel for {robot_name}.robotmcp.ai...")
+        # Prompt for robot name and create tunnel (retry on name conflict)
+        while True:
+            robot_name = prompt_robot_name()
+            print(f"\nCreating tunnel for {robot_name}.robotmcp.ai...")
 
-        tunnel_result = create_tunnel(
-            robot_name=robot_name,
-            user_id=result["user_id"],
-            access_token=result["access_token"]
-        )
-
-        if tunnel_result.get("success"):
-            update_config_tunnel(
+            tunnel_result = create_tunnel(
                 robot_name=robot_name,
-                tunnel_token=tunnel_result["tunnel_token"],
-                tunnel_url=tunnel_result["tunnel_url"]
+                user_id=result["user_id"],
+                access_token=result["access_token"]
             )
-            print(f"[OK] Tunnel created: {tunnel_result['tunnel_url']}")
-            print(f"  Tunnel token saved to config.\n")
-            return True
-        else:
-            error = tunnel_result.get("error", "Unknown error")
-            print(f"[X] Tunnel creation failed: {error}")
-            print("  You can retry by running: python cli.py --setup-tunnel")
-            return False
+
+            if tunnel_result.get("success"):
+                update_config_tunnel(
+                    robot_name=robot_name,
+                    tunnel_token=tunnel_result["tunnel_token"],
+                    tunnel_url=tunnel_result["tunnel_url"]
+                )
+                print(f"[OK] Tunnel created: {tunnel_result['tunnel_url']}")
+                print(f"  Tunnel token saved to config.\n")
+                return True
+            else:
+                error = tunnel_result.get("error", "Unknown error")
+                print(f"[X] Tunnel creation failed: {error}")
+
+                # Check if name is taken - allow retry
+                if "already taken" in error.lower() or "already exists" in error.lower():
+                    print("  Please choose a different name.\n")
+                    continue
+                else:
+                    # Other error - don't retry
+                    print("  You can retry by running: simple-mcp-server")
+                    return False
 
     print("\n[X] Login timed out. Please try again.")
     return False
