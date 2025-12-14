@@ -172,9 +172,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount FastMCP's Streamable HTTP app at /mcp
-mcp_app = mcp.http_app(transport="streamable-http", path="/mcp")
-app.mount("/mcp", mcp_app)
+# Mount FastMCP's Streamable HTTP app
+# FastMCP creates routes at /mcp internally, so mount at root
+mcp_app = mcp.http_app(transport="streamable-http")
+app.mount("", mcp_app)
 
 # Add OAuth middleware (applied after mount)
 app.add_middleware(OAuthMiddleware)
