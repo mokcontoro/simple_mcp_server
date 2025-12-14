@@ -43,7 +43,15 @@
       "Bash(cmd //c \"taskkill /F /PID 33860\")",
       "Bash(nslookup:*)",
       "Bash(ipconfig:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(git revert:*)",
+      "Bash(gh auth status:*)",
+      "Bash(gh repo create:*)",
+      "Bash(gh repo clone:*)",
+      "Bash(cd:*)",
+      "Bash(git clone:*)",
+      "Bash(git config:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }
