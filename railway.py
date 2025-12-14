@@ -22,7 +22,7 @@ import httpx
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-print("=== RAILWAY.PY v1.3.0 LOADED ===", flush=True)
+print("=== RAILWAY.PY v1.4.0 LOADED ===", flush=True)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form
@@ -53,12 +53,12 @@ cli_sessions: dict[str, dict] = {}
 app = FastAPI(
     title="Simple MCP Server - CLI Login",
     description="Railway service for CLI installation login and tunnel creation",
-    version="1.3.0",
+    version="1.4.0",
 )
 
 @app.on_event("startup")
 async def startup_event():
-    logger.warning("=== Railway CLI Login Service v1.3.0 starting ===")
+    logger.warning("=== Railway CLI Login Service v1.4.0 starting ===")
     logger.warning(f"Supabase configured: {bool(supabase)}")
     cloudflare_configured = bool(CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_ZONE_ID)
     logger.warning(f"Cloudflare configured: {cloudflare_configured}")
@@ -105,6 +105,7 @@ CLI_LOGIN_PAGE = """
         <form method="POST" action="/cli-login">
             <input type="hidden" name="session" value="{session}">
             <input type="hidden" name="port" value="{port}">
+            <input type="hidden" name="host" value="{host}">
             <div class="form-group">
                 <label for="email">Email</label>
                 <input type="email" id="email" name="email" required placeholder="your@email.com">
@@ -116,7 +117,7 @@ CLI_LOGIN_PAGE = """
             <button type="submit">Sign In</button>
         </form>
         <div class="signup-link">
-            Don't have an account? <a href="/cli-signup?session={session}&port={port}">Sign up</a>
+            Don't have an account? <a href="/cli-signup?session={session}&port={port}&host={host}">Sign up</a>
         </div>
     </div>
 </body>
@@ -163,6 +164,7 @@ CLI_SIGNUP_PAGE = """
         <form method="POST" action="/cli-signup">
             <input type="hidden" name="session" value="{session}">
             <input type="hidden" name="port" value="{port}">
+            <input type="hidden" name="host" value="{host}">
             <div class="form-group">
                 <label for="name">Name</label>
                 <input type="text" id="name" name="name" required placeholder="Your name">
@@ -186,7 +188,7 @@ CLI_SIGNUP_PAGE = """
             <button type="submit">Create Account</button>
         </form>
         <div class="login-link">
-            Already have an account? <a href="/cli-login?session={session}&port={port}">Sign in</a>
+            Already have an account? <a href="/cli-login?session={session}&port={port}&host={host}">Sign in</a>
         </div>
     </div>
 </body>
@@ -207,32 +209,34 @@ async def root():
     """Root endpoint with service info."""
     return {
         "name": "Simple MCP Server - CLI Login",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "description": "Railway service for CLI installation login and tunnel creation",
         "endpoints": ["/cli-login", "/cli-signup", "/create-tunnel", "/health"]
     }
 
 
 @app.get("/cli-login")
-async def cli_login_page(session: str = "", port: str = ""):
+async def cli_login_page(session: str = "", port: str = "", host: str = "127.0.0.1"):
     """Show CLI login form."""
     if not session or not port:
         return HTMLResponse("<h1>Invalid request. Missing session or port.</h1>", status_code=400)
 
-    # Store CLI session
+    # Store CLI session with host for callback
     cli_sessions[session] = {
         "port": port,
+        "host": host,  # Callback host (127.0.0.1 or WSL IP)
         "created_at": int(time.time()),
         "expires_at": int(time.time()) + 600  # 10 minutes
     }
 
-    return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=""))
+    return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, host=host, error=""))
 
 
 @app.post("/cli-login")
 async def cli_login_submit(
     session: str = Form(...),
     port: str = Form(...),
+    host: str = Form("127.0.0.1"),
     email: str = Form(...),
     password: str = Form(...)
 ):
@@ -244,6 +248,9 @@ async def cli_login_submit(
     if time.time() > cli_data["expires_at"]:
         del cli_sessions[session]
         return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
+
+    # Get host from session data (fallback to form value)
+    callback_host = cli_data.get("host", host)
 
     # Authenticate with Supabase
     user_id = None
@@ -275,10 +282,10 @@ async def cli_login_submit(
                 print(f"[DEBUG] Extracted - name: {name}, org: {organization}", flush=True)
             else:
                 error_html = '<div class="error">Invalid email or password</div>'
-                return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
+                return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
         except Exception as e:
             error_html = f'<div class="error">Authentication failed: {str(e)}</div>'
-            return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
+            return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
     # Clean up session
     del cli_sessions[session]
@@ -292,31 +299,34 @@ async def cli_login_submit(
         "name": name,
         "organization": organization,
     })
-    callback_url = f"http://127.0.0.1:{port}/callback?{callback_params}"
+    callback_url = f"http://{callback_host}:{port}/callback?{callback_params}"
+    logger.info(f"[CLI-LOGIN] Redirecting to callback: {callback_host}:{port}")
 
     return RedirectResponse(url=callback_url, status_code=302)
 
 
 @app.get("/cli-signup")
-async def cli_signup_page(session: str = "", port: str = ""):
+async def cli_signup_page(session: str = "", port: str = "", host: str = "127.0.0.1"):
     """Show CLI signup form."""
     if not session or not port:
         return HTMLResponse("<h1>Invalid request. Missing session or port.</h1>", status_code=400)
 
-    # Store or update CLI session
+    # Store or update CLI session with host
     cli_sessions[session] = {
         "port": port,
+        "host": host,
         "created_at": int(time.time()),
         "expires_at": int(time.time()) + 600
     }
 
-    return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=""))
+    return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=host, error=""))
 
 
 @app.post("/cli-signup")
 async def cli_signup_submit(
     session: str = Form(...),
     port: str = Form(...),
+    host: str = Form("127.0.0.1"),
     name: str = Form(...),
     organization: str = Form(""),
     email: str = Form(...),
@@ -332,24 +342,27 @@ async def cli_signup_submit(
         del cli_sessions[session]
         return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
 
+    # Get host from session data (fallback to form value)
+    callback_host = cli_data.get("host", host)
+
     # Validate name
     if not name.strip():
         error_html = '<div class="error">Name is required</div>'
-        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
     # Validate passwords match
     if password != confirm_password:
         error_html = '<div class="error">Passwords do not match</div>'
-        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
     if len(password) < 6:
         error_html = '<div class="error">Password must be at least 6 characters</div>'
-        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
     # Create account with Supabase
     if not supabase:
         # Fallback: redirect to login (demo mode)
-        return RedirectResponse(url=f"/cli-login?session={session}&port={port}", status_code=302)
+        return RedirectResponse(url=f"/cli-login?session={session}&port={port}&host={callback_host}", status_code=302)
 
     try:
         # Build user metadata
@@ -367,17 +380,17 @@ async def cli_signup_submit(
 
         if response.user:
             # Redirect to login page after signup
-            return RedirectResponse(url=f"/cli-login?session={session}&port={port}", status_code=302)
+            return RedirectResponse(url=f"/cli-login?session={session}&port={port}&host={callback_host}", status_code=302)
         else:
             error_html = '<div class="error">Failed to create account</div>'
-            return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+            return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
     except Exception as e:
         error_msg = str(e)
         if "already registered" in error_msg.lower():
             error_html = '<div class="error">An account with this email already exists</div>'
         else:
             error_html = f'<div class="error">Signup failed: {error_msg}</div>'
-        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
 
 # ============== Cloudflare Tunnel API ==============
