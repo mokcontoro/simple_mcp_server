@@ -8,10 +8,12 @@ A Model Context Protocol (MCP) server with OAuth 2.1 authentication, Supabase us
 - **Streamable HTTP Transport**: Modern MCP transport (spec 2025-03-26) at `/mcp`
 - **Legacy SSE Support**: Backward compatible SSE transport at `/sse`
 - **OAuth 2.1**: Full OAuth flow with PKCE support and dynamic client registration
+- **Optional OAuth**: Disable with `ENABLE_OAUTH=false` for simpler deployments
 - **Supabase Auth**: User authentication via Supabase
 - **Cloudflare Tunnel**: Secure access to your local server via `{name}.robotmcp.ai`
 - **Creator-Only Access**: Only the server creator can connect (authorization check)
 - **Multi-Platform**: Works with ChatGPT and Claude.ai
+- **Modular Architecture**: Separated concerns for easy customization and extension
 - **FastMCP Framework**: Aligned with ros-mcp-server for future merge compatibility
 
 ## Architecture
@@ -27,6 +29,22 @@ A Model Context Protocol (MCP) server with OAuth 2.1 authentication, Supabase us
                                                  │    Supabase     │
                                                  │ (user auth DB)  │
                                                  └─────────────────┘
+```
+
+## Project Structure
+
+```
+simple_mcp_server/
+├── main.py              # FastAPI app, routes, server setup
+├── tools.py             # MCP tools (echo, ping) - easily replaceable
+├── cli.py               # CLI daemon management
+├── config.py            # Configuration management
+├── oauth/               # OAuth module (optional)
+│   ├── __init__.py
+│   ├── middleware.py    # MCPOAuthMiddleware for /mcp endpoint
+│   ├── stores.py        # In-memory token stores
+│   └── templates.py     # HTML login/signup pages
+└── pyproject.toml
 ```
 
 ## Quick Start
@@ -79,6 +97,7 @@ This will:
 | `SUPABASE_URL` | Your Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anonymous key |
 | `SUPABASE_JWT_SECRET` | JWT secret for token validation |
+| `ENABLE_OAUTH` | Set to `false` to disable OAuth (default: `true`) |
 
 ## Access Control
 

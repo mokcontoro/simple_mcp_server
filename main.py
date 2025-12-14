@@ -33,7 +33,6 @@ from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from starlette.responses import Response
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware import Middleware
 from supabase import create_client, Client
 
@@ -59,6 +58,9 @@ MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
 MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
 MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
+# OAuth toggle - set to "false" for ros-mcp-server mode (no auth)
+ENABLE_OAUTH = os.getenv("ENABLE_OAUTH", "true").lower() == "true"
+
 # Initialize Supabase client
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_ANON_KEY:
@@ -72,59 +74,25 @@ logger.info(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email:
 # This is critical for OAuth - MCP clients need to authenticate on THIS server, not Railway
 SERVER_URL = local_config.tunnel_url or os.getenv("SERVER_URL", "https://simplemcpserver-production-e610.up.railway.app")
 logger.info(f"[STARTUP] SERVER_URL: {SERVER_URL}")
+logger.info(f"[STARTUP] OAuth enabled: {ENABLE_OAUTH}")
 
-# In-memory stores (use Redis/DB in production)
-registered_clients: dict[str, dict] = {}
-authorization_codes: dict[str, dict] = {}
-access_tokens: dict[str, dict] = {}
-pending_authorizations: dict[str, dict] = {}  # session_id -> oauth params
-authenticated_sessions: dict[str, dict] = {}  # session_id -> user info
+# ============== In-memory stores ==============
+# Imported from oauth/stores.py - shared between middleware and endpoints
+from oauth.stores import (
+    registered_clients,
+    authorization_codes,
+    access_tokens,
+    pending_authorizations,
+    authenticated_sessions,
+)
 
 # ============== FastMCP Server (aligned with ros-mcp-server) ==============
 # MCP tools imported from tools.py - easily replaceable for ros-mcp-server merge
 from tools import mcp
 
-
 # ============== OAuth Authentication Middleware for MCP ==============
-
-class MCPOAuthMiddleware(BaseHTTPMiddleware):
-    """Middleware to validate OAuth Bearer tokens for Streamable HTTP MCP endpoint."""
-
-    async def dispatch(self, request: Request, call_next):
-        # Check Bearer token
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            logger.debug(f"[MCP] No Bearer token in request")
-            return JSONResponse(
-                {"error": "unauthorized", "error_description": "Missing or invalid Authorization header"},
-                status_code=401,
-                headers={"WWW-Authenticate": f'Bearer resource_metadata="{SERVER_URL}/.well-known/oauth-protected-resource"'}
-            )
-
-        token = auth_header[7:]
-        token_data = access_tokens.get(token)
-
-        if not token_data or time.time() >= token_data.get("expires_at", 0):
-            logger.debug(f"[MCP] Invalid or expired token")
-            return JSONResponse(
-                {"error": "unauthorized", "error_description": "Invalid or expired token"},
-                status_code=401,
-                headers={"WWW-Authenticate": f'Bearer resource_metadata="{SERVER_URL}/.well-known/oauth-protected-resource"'}
-            )
-
-        # Check authorization (creator-only access)
-        creator_user_id = local_config.user_id
-        connecting_user_id = token_data.get("user_id")
-
-        if creator_user_id and connecting_user_id != creator_user_id:
-            logger.warning(f"[MCP] Access denied: user {connecting_user_id} is not the server creator")
-            return JSONResponse(
-                {"error": "forbidden", "error_description": "Access denied: not authorized for this server"},
-                status_code=403
-            )
-
-        logger.debug(f"[MCP] Authorized: {token_data.get('user_email')}")
-        return await call_next(request)
+# Imported from oauth/middleware.py
+from oauth.middleware import MCPOAuthMiddleware
 
 
 # ============== Streamable HTTP MCP App ==============
@@ -133,7 +101,7 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
 mcp_http_app = mcp.http_app(
     path="/",  # Route at root of mounted app
     transport="streamable-http",
-    middleware=[Middleware(MCPOAuthMiddleware)]
+    middleware=[Middleware(MCPOAuthMiddleware)] if ENABLE_OAUTH else []
 )
 
 # ============== FastAPI App with OAuth ==============
@@ -568,18 +536,21 @@ async def health_check():
 @app.get("/")
 async def root():
     """Root endpoint with server info."""
-    return {
+    response = {
         "name": "Simple MCP Server",
         "version": "2.0.0",
         "transport": MCP_TRANSPORT,
         "mcp_endpoint": "/mcp",
         "legacy_sse_endpoint": "/sse",
         "tools": ["echo", "ping"],
-        "oauth": {
+        "oauth_enabled": ENABLE_OAUTH
+    }
+    if ENABLE_OAUTH:
+        response["oauth"] = {
             "protected_resource": f"{SERVER_URL}/.well-known/oauth-protected-resource",
             "authorization_server": f"{SERVER_URL}/.well-known/oauth-authorization-server"
         }
-    }
+    return response
 
 
 # ============== Legacy SSE Endpoints (backward compatibility) ==============
