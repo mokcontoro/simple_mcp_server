@@ -1,20 +1,40 @@
 # Simple MCP Server
 
-A Model Context Protocol (MCP) server with OAuth 2.1 authentication, Supabase user management, and support for ChatGPT and Claude.ai integration.
+A Model Context Protocol (MCP) server with OAuth 2.1 authentication, Supabase user management, and Cloudflare tunnel support. Works with ChatGPT and Claude.ai.
 
 ## Features
 
 - **MCP Tools**: Echo and Ping tools for testing connectivity
 - **OAuth 2.1**: Full OAuth flow with PKCE support and dynamic client registration
 - **Supabase Auth**: User authentication via Supabase
+- **Cloudflare Tunnel**: Secure access to your local server via `{name}.robotmcp.ai`
+- **Creator-Only Access**: Only the server creator can connect (authorization check)
 - **Multi-Platform**: Works with ChatGPT and Claude.ai
-- **Railway Ready**: One-click deployment
+
+## Architecture
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   MCP Client    │────▶│ Cloudflare Tunnel│────▶│  Local Server   │
+│ (ChatGPT/Claude)│     │  {name}.robotmcp │     │  (your machine) │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                                                         │
+                                                         ▼
+                                                 ┌─────────────────┐
+                                                 │    Supabase     │
+                                                 │ (user auth DB)  │
+                                                 └─────────────────┘
+```
 
 ## Quick Start
 
-### Local Development
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/mokcontoro/simple_mcp_server.git
+cd simple_mcp_server
+
 # Create virtual environment
 python -m venv venv
 venv\Scripts\activate  # Windows
@@ -25,13 +45,29 @@ pip install -r requirements.txt
 
 # Copy and configure environment
 cp .env.example .env
-# Edit .env with your credentials
-
-# Run server
-uvicorn main:app --reload
+# Edit .env with your Supabase credentials
 ```
 
-Server runs at `http://localhost:8000`
+### First Run
+
+```bash
+python cli.py
+```
+
+This will:
+1. Open browser for login/signup via Supabase
+2. Prompt for a robot name (e.g., `myrobot` → `myrobot.robotmcp.ai`)
+3. Create a Cloudflare tunnel
+4. Start the local MCP server
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `python cli.py` | Start the MCP server |
+| `python cli.py --stop` | Stop server (keep credentials) |
+| `python cli.py --logout` | Stop server and clear credentials |
+| `python cli.py --status` | Show current status and configuration |
 
 ### Environment Variables
 
@@ -40,17 +76,17 @@ Server runs at `http://localhost:8000`
 | `SUPABASE_URL` | Your Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anonymous key |
 | `SUPABASE_JWT_SECRET` | JWT secret for token validation |
-| `SERVER_URL` | Public URL of your deployed server |
 
-## Deployment
+## Access Control
 
-### Railway
+**Creator-Only Access**: Only the user who set up the server can connect via MCP clients.
 
-1. Push code to GitHub
-2. Create new project at [railway.app](https://railway.app)
-3. Deploy from GitHub repo
-4. Add environment variables
-5. Get your URL (e.g., `https://xxx.railway.app`)
+- When you run `python cli.py` and log in, your user ID is stored locally
+- When an MCP client (ChatGPT/Claude) connects, they must authenticate
+- The server checks if the authenticated user matches the creator
+- Unauthorized users receive a `403 Forbidden` error
+
+This prevents others from using your MCP server even if they have a Supabase account.
 
 ## API Endpoints
 
@@ -63,10 +99,8 @@ Server runs at `http://localhost:8000`
 ### MCP Endpoints
 | Endpoint | Description |
 |----------|-------------|
-| `GET /sse` | MCP SSE connection |
-| `POST /message` | MCP message handler |
-| `GET /mcp/sse` | Alternative SSE path |
-| `POST /mcp/message` | Alternative message path |
+| `GET /sse` | MCP SSE connection (requires auth) |
+| `POST /message` | MCP message handler (requires auth) |
 
 ### OAuth 2.1 Endpoints
 | Endpoint | Description |
@@ -89,21 +123,64 @@ Output: "Echo: Hello, world!"
 ### ping
 Simple connectivity test.
 ```
-Output: "pong"
+Output: "pong from {owner}'s MCP server"
 ```
 
 ## Client Configuration
 
 ### ChatGPT
-1. Go to **Settings → Connectors → New App**
-2. Set MCP Server URL to `https://your-server.railway.app/mcp/sse`
+1. Go to **Settings → Connectors → Add**
+2. Set MCP Server URL to `https://{your-name}.robotmcp.ai/sse`
 3. Select OAuth authentication
-4. The server handles dynamic client registration automatically
+4. Log in with your Supabase account (must be the server creator)
 
 ### Claude.ai
 1. Add as an MCP integration
-2. Use SSE endpoint: `https://your-server.railway.app/sse`
-3. OAuth flow will redirect to login page for authentication
+2. Use SSE endpoint: `https://{your-name}.robotmcp.ai/sse`
+3. OAuth flow will redirect to login page
+4. Log in with your Supabase account (must be the server creator)
+
+## Troubleshooting
+
+### Cloudflared Windows Service Conflict
+
+If you see issues with the tunnel, check if cloudflared is running as a Windows service:
+
+```powershell
+# Check status
+python cli.py --status
+
+# If service is running, stop it (Admin Command Prompt):
+net stop cloudflared
+
+# Or permanently uninstall:
+cloudflared service uninstall
+```
+
+### Port 8000 Already in Use
+
+The CLI automatically cleans up old processes on startup. If issues persist:
+
+```powershell
+# Stop server
+python cli.py --stop
+
+# Or manually kill processes
+netstat -ano | findstr :8000
+taskkill /F /PID <pid>
+```
+
+## Development
+
+### Railway Deployment (Auth Server)
+
+The auth server component is deployed on Railway for browser-based login:
+
+1. Push code to GitHub
+2. Create new project at [railway.app](https://railway.app)
+3. Deploy from GitHub repo
+4. Add environment variables
+5. Set `AUTH_SERVER_URL` in your local `.env`
 
 ## License
 
