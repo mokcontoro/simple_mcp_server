@@ -503,15 +503,17 @@ def cmd_start():
         print("  - Stopped old server on port 8000")
 
     # Print startup banner BEFORE daemonizing (so user sees it)
+    mcp_url = f"{config.tunnel_url}/mcp"
     sse_url = f"{config.tunnel_url}/sse"
     print("\n" + "=" * 60)
     print("  Simple MCP Server - Starting")
     print("=" * 60)
     print(f"  User:    {config.email}")
-    print(f"  SSE URL: {sse_url}")
+    print(f"  MCP URL: {mcp_url}  (Streamable HTTP)")
+    print(f"  SSE URL: {sse_url}  (Legacy)")
     print("=" * 60)
     print()
-    print("  Copy the SSE URL above to your MCP client:")
+    print("  Copy the MCP URL above to your MCP client:")
     print()
     print("  ChatGPT: Settings > Connectors > Add > paste URL")
     print("  Claude:  Add MCP integration > paste URL")
@@ -663,7 +665,8 @@ def cmd_status():
         print(f"  Status:   Configured")
         print(f"  Name:     {config.robot_name}")
         print(f"  URL:      {config.tunnel_url}")
-        print(f"  SSE:      {config.tunnel_url}/sse")
+        print(f"  MCP:      {config.tunnel_url}/mcp  (Streamable HTTP)")
+        print(f"  SSE:      {config.tunnel_url}/sse  (Legacy)")
     else:
         print("  Status:   Not configured")
 
@@ -773,7 +776,7 @@ QUICK START:
     2. Log in via browser (opens automatically)
     3. Enter a robot name (e.g., 'myrobot')
     4. Server starts in background at https://myrobot.robotmcp.ai
-    5. Copy the SSE URL to ChatGPT/Claude
+    5. Copy the MCP URL to ChatGPT/Claude (or SSE URL for legacy clients)
 
 For more information, see: https://github.com/mokcontoro/simple_mcp_server
 """)
