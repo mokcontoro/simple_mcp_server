@@ -2,7 +2,6 @@
 import re
 import secrets
 import socket
-import threading
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -20,9 +19,8 @@ class CallbackHandler(BaseHTTPRequestHandler):
     """Handle OAuth callback from browser."""
 
     def log_message(self, format, *args):
-        """Log requests for debugging."""
-        import sys
-        print(f"\n  [CALLBACK] {args[0]}", file=sys.stderr, flush=True)
+        """Suppress default logging."""
+        pass
 
     def do_GET(self):
         """Handle callback GET request."""
@@ -56,6 +54,9 @@ class CallbackHandler(BaseHTTPRequestHandler):
             else:
                 self.server.login_error = "Missing credentials"
                 self._send_response("Login failed. Missing credentials.")
+
+            # Signal to stop server
+            self.server.should_stop = True
         else:
             self.send_error(404)
 
@@ -80,21 +81,10 @@ body {{ font-family: sans-serif; display: flex; justify-content: center;
 
 
 def find_free_port() -> int:
-    """Find an available port (legacy, prefer letting HTTPServer choose)."""
+    """Find an available port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
         return s.getsockname()[1]
-
-
-def create_callback_server() -> tuple:
-    """Create callback server on an available port.
-
-    Returns (server, port) tuple. The server is already bound and listening.
-    """
-    # Let the OS assign a free port by using port 0
-    server = HTTPServer(("127.0.0.1", 0), CallbackHandler)
-    port = server.server_address[1]
-    return server, port
 
 
 def validate_robot_name(name: str) -> tuple[bool, str]:
@@ -169,53 +159,35 @@ def run_login_flow() -> bool:
     """
     print("\nNo configuration found. Starting setup...\n")
 
-    # Generate session ID
+    # Generate session ID and find free port
     session_id = secrets.token_urlsafe(32)
+    port = find_free_port()
 
-    # Start local callback server FIRST (before opening browser)
-    # Let the server choose its own port to avoid race conditions
-    try:
-        server, port = create_callback_server()
-    except OSError as e:
-        print(f"\n[X] Failed to start callback server: {e}")
-        return False
-
-    server.login_result = None
-    server.login_error = None
-
-    # Run server in a background thread (more reliable than handle_request loop)
-    def run_server():
-        server.serve_forever()
-
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
-
-    print(f"Callback server listening on http://127.0.0.1:{port}/", flush=True)
-
-    # Build login URL with the actual port
+    # Build login URL
     login_url = f"{SERVER_URL}/cli-login?session={session_id}&port={port}"
 
-    print("\nOpening browser for login...")
+    print("Opening browser for login...")
     print(f"If browser doesn't open, visit:\n  {login_url}\n")
 
-    # Open browser AFTER server is ready and listening
+    # Open browser
     webbrowser.open(login_url)
 
-    print(f"Waiting for login...", flush=True)
+    # Start local callback server
+    server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+    server.login_result = None
+    server.login_error = None
+    server.should_stop = False
+    server.timeout = 1  # Check every second
+
+    print("Waiting for login...", end="", flush=True)
 
     # Wait for callback (timeout after 5 minutes)
-    import time
     max_wait = 300
     waited = 0
-    while server.login_result is None and server.login_error is None and waited < max_wait:
-        time.sleep(1)
+    while not server.should_stop and waited < max_wait:
+        server.handle_request()
         waited += 1
-        # Print progress dot every 30 seconds
-        if waited % 30 == 0:
-            print(".", end="", flush=True)
 
-    # Shutdown server
-    server.shutdown()
     print()
 
     if server.login_error:
