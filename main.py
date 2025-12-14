@@ -441,6 +441,7 @@ async def login_submit(
         })
 
         if response.user:
+            logger.warning(f"[LOGIN] User authenticated: {response.user.email}, user_id: {response.user.id}")
             authenticated_sessions[session] = {
                 "email": response.user.email,
                 "user_id": response.user.id
@@ -614,11 +615,18 @@ async def token(
         except:
             return JSONResponse({"error": "invalid_request"}, status_code=400)
 
+    logger.warning(f"[TOKEN] ========== TOKEN REQUEST ==========")
+    logger.warning(f"[TOKEN] grant_type: {grant_type}")
+    logger.warning(f"[TOKEN] client_id: {client_id}")
+
     if grant_type == "authorization_code":
         if not code or code not in authorization_codes:
+            logger.warning(f"[TOKEN] Invalid code: {code}")
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
 
         auth_data = authorization_codes[code]
+        logger.warning(f"[TOKEN] auth_data user_id: {auth_data.get('user_id')}")
+        logger.warning(f"[TOKEN] auth_data user_email: {auth_data.get('user_email')}")
 
         # Check expiration
         if time.time() > auth_data["expires_at"]:
@@ -647,6 +655,7 @@ async def token(
             "created_at": int(time.time()),
             "expires_at": int(time.time()) + expires_in
         }
+        logger.warning(f"[TOKEN] Created access token with user_id: {auth_data.get('user_id')}")
 
         # Clean up used code
         del authorization_codes[code]
