@@ -347,15 +347,24 @@ def cmd_start():
     tunnel_process = run_cloudflared_tunnel(config.tunnel_token)
 
     # Print startup banner
-    print("\n" + "=" * 50)
-    print("  Simple MCP Server")
-    print("=" * 50)
+    sse_url = f"{config.tunnel_url}/sse"
+    print("\n" + "=" * 60)
+    print("  Simple MCP Server - Running")
+    print("=" * 60)
     print(f"  User:   {config.email}")
     print(f"  URL:    {config.tunnel_url}")
-    print(f"  SSE:    {config.tunnel_url}/sse")
-    print("=" * 50)
+    print("=" * 60)
+    print()
+    print("  Copy this URL to your MCP client (ChatGPT, Claude, etc.):")
+    print()
+    print(f"    {sse_url}")
+    print()
+    print("  ChatGPT: Settings > Connectors > Add > paste URL above")
+    print("  Claude:  Add MCP integration > paste URL above")
+    print()
+    print("=" * 60)
     print("  Press Ctrl+C to stop")
-    print("=" * 50 + "\n")
+    print("=" * 60 + "\n")
 
     try:
         uvicorn.run("main:app", host="0.0.0.0", port=8000)
