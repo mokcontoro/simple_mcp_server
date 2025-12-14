@@ -101,9 +101,11 @@ def verify_token(token: str) -> dict[str, Any]:
     """
     # Get server creator's user_id for authorization check
     creator_user_id = local_config.user_id
+    print(f"[AUTH] Creator user_id from config: {creator_user_id}", flush=True)
 
     if not supabase:
         # If Supabase not configured, accept local user's token only
+        print("[AUTH] Supabase not configured, checking local token", flush=True)
         if local_config.is_valid() and token == local_config.access_token:
             return {
                 "user_id": local_config.user_id,
@@ -116,12 +118,16 @@ def verify_token(token: str) -> dict[str, Any]:
         # Validate JWT with Supabase
         user = supabase.auth.get_user(token)
         if user and user.user:
+            print(f"[AUTH] Connecting user_id: {user.user.id}", flush=True)
+            print(f"[AUTH] Connecting email: {user.user.email}", flush=True)
             # Authorization check: is this user allowed to access this server?
             if creator_user_id and user.user.id != creator_user_id:
+                print(f"[AUTH] DENIED: {user.user.id} != {creator_user_id}", flush=True)
                 raise HTTPException(
                     status_code=403,
-                    detail="Access denied: not authorized for this server"
+                    detail=f"Access denied: not authorized for this server (your id: {user.user.id[:8]}...)"
                 )
+            print(f"[AUTH] ALLOWED: user authorized", flush=True)
             return {
                 "user_id": user.user.id,
                 "email": user.user.email,
@@ -129,7 +135,8 @@ def verify_token(token: str) -> dict[str, Any]:
             }
     except HTTPException:
         raise  # Re-raise 403 errors
-    except Exception:
+    except Exception as e:
+        print(f"[AUTH] Exception: {e}", flush=True)
         pass
 
     raise HTTPException(status_code=401, detail="Invalid or expired token")

@@ -26,6 +26,8 @@ from mcp.server.sse import SseServerTransport
 from starlette.responses import Response
 from supabase import create_client, Client
 
+from config import load_config
+
 load_dotenv()
 
 # Environment variables
@@ -39,6 +41,9 @@ JWT_SECRET = os.getenv("JWT_SECRET", SUPABASE_JWT_SECRET or secrets.token_hex(32
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_ANON_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+# Load local config (server creator info from CLI login)
+local_config = load_config()
 
 # In-memory stores (use Redis/DB in production)
 registered_clients: dict[str, dict] = {}
@@ -687,6 +692,42 @@ def unauthorized_response(error_description: str) -> JSONResponse:
     )
 
 
+def forbidden_response(error_description: str) -> JSONResponse:
+    """Return 403 Forbidden response for unauthorized access."""
+    return JSONResponse(
+        {"error": "forbidden", "error_description": error_description},
+        status_code=403
+    )
+
+
+def check_authorization(token_data: dict) -> bool:
+    """Check if the token belongs to an authorized user.
+
+    Returns True if authorized, raises HTTPException if not.
+    """
+    creator_user_id = local_config.user_id
+    connecting_user_id = token_data.get("user_id")
+
+    print(f"[AUTH] Creator user_id: {creator_user_id}", flush=True)
+    print(f"[AUTH] Connecting user_id: {connecting_user_id}", flush=True)
+
+    # If no creator configured, allow all authenticated users
+    if not creator_user_id:
+        print("[AUTH] No creator configured, allowing access", flush=True)
+        return True
+
+    # Check if connecting user matches creator
+    if connecting_user_id != creator_user_id:
+        print(f"[AUTH] DENIED: {connecting_user_id} != {creator_user_id}", flush=True)
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: not authorized for this server"
+        )
+
+    print("[AUTH] ALLOWED: user is server creator", flush=True)
+    return True
+
+
 # ============== MCP Endpoints ==============
 
 @app.get("/health")
@@ -729,6 +770,12 @@ async def sse_endpoint(request: Request) -> Response:
     if not token_data:
         return unauthorized_response("Invalid or expired token")
 
+    # Check if user is authorized to access this server
+    try:
+        check_authorization(token_data)
+    except HTTPException as e:
+        return forbidden_response(e.detail)
+
     async with sse_transport.connect_sse(
         request.scope, request.receive, request._send
     ) as streams:
@@ -757,6 +804,12 @@ async def message_endpoint(request: Request) -> Response:
 
     if not token_data:
         return unauthorized_response("Invalid or expired token")
+
+    # Check if user is authorized to access this server
+    try:
+        check_authorization(token_data)
+    except HTTPException as e:
+        return forbidden_response(e.detail)
 
     return await sse_transport.handle_post_message(
         request.scope, request.receive, request._send
