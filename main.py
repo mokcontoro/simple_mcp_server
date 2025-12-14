@@ -98,7 +98,7 @@ def ping() -> str:
 app = FastAPI(
     title="Simple MCP Server",
     description="A minimal MCP server with echo functionality and OAuth 2.1",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 # Add CORS middleware for browser-based MCP client access
