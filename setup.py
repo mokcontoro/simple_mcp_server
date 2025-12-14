@@ -82,10 +82,21 @@ body {{ font-family: sans-serif; display: flex; justify-content: center;
 
 
 def find_free_port() -> int:
-    """Find an available port."""
+    """Find an available port (legacy, prefer letting HTTPServer choose)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
         return s.getsockname()[1]
+
+
+def create_callback_server() -> tuple:
+    """Create callback server on an available port.
+
+    Returns (server, port) tuple. The server is already bound and listening.
+    """
+    # Let the OS assign a free port by using port 0
+    server = HTTPServer(("127.0.0.1", 0), CallbackHandler)
+    port = server.server_address[1]
+    return server, port
 
 
 def validate_robot_name(name: str) -> tuple[bool, str]:
@@ -160,39 +171,34 @@ def run_login_flow() -> bool:
     """
     print("\nNo configuration found. Starting setup...\n")
 
-    # Generate session ID and find free port
+    # Generate session ID
     session_id = secrets.token_urlsafe(32)
-    port = find_free_port()
 
-    # Build login URL
-    login_url = f"{SERVER_URL}/cli-login?session={session_id}&port={port}"
-
-    print("Opening browser for login...")
-    print(f"If browser doesn't open, visit:\n  {login_url}\n")
-
-    # Open browser
-    webbrowser.open(login_url)
-
-    # Start local callback server
-    # Use "" to bind to all interfaces for better cross-platform compatibility
+    # Start local callback server FIRST (before opening browser)
+    # Let the server choose its own port to avoid race conditions
     try:
-        server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+        server, port = create_callback_server()
+        print(f"Callback server started on port {port}", flush=True)
     except OSError as e:
-        print(f"\n[X] Failed to start callback server on port {port}: {e}")
-        print("  Trying alternative binding...")
-        try:
-            server = HTTPServer(("", port), CallbackHandler)
-        except OSError as e2:
-            print(f"[X] Failed to start callback server: {e2}")
-            return False
+        print(f"\n[X] Failed to start callback server: {e}")
+        return False
 
     server.login_result = None
     server.login_error = None
     server.should_stop = False
     server.timeout = 1  # Check every second
 
-    print(f"Waiting for login (callback server on port {port})...", flush=True)
-    print("  (If browser shows connection error, check firewall settings)", flush=True)
+    # Build login URL with the actual port
+    login_url = f"{SERVER_URL}/cli-login?session={session_id}&port={port}"
+
+    print("\nOpening browser for login...")
+    print(f"If browser doesn't open, visit:\n  {login_url}\n")
+
+    # Open browser AFTER server is ready and listening
+    webbrowser.open(login_url)
+
+    print(f"Waiting for login...", flush=True)
+    print("  (If browser shows connection error, the server may have an issue)", flush=True)
 
     # Wait for callback (timeout after 5 minutes)
     max_wait = 300
