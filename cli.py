@@ -233,9 +233,52 @@ def install_cloudflared() -> bool:
         dest.chmod(0o755)
 
         print("  Done!")
+
+        # Offer to add ~/.local/bin to PATH
+        if not is_local_bin_in_path():
+            print("\n  ~/.local/bin is not in your PATH.")
+            try:
+                response = input("  Add to ~/.bashrc? (y/n): ").strip().lower()
+                if response == 'y':
+                    if add_to_bashrc():
+                        print("  Added to ~/.bashrc")
+                        print("  Run: source ~/.bashrc  (or restart terminal)")
+                    else:
+                        print("  Failed to update ~/.bashrc")
+            except (EOFError, KeyboardInterrupt):
+                pass  # Non-interactive mode, skip
+
         return True
     except Exception as e:
         print(f"  Failed: {e}")
+        return False
+
+
+def is_local_bin_in_path() -> bool:
+    """Check if ~/.local/bin is in PATH."""
+    local_bin = str(CLOUDFLARED_INSTALL_DIR)
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    # Check both expanded and unexpanded forms
+    return any(local_bin in p or ".local/bin" in p for p in path_dirs)
+
+
+def add_to_bashrc() -> bool:
+    """Add ~/.local/bin to PATH in ~/.bashrc."""
+    bashrc = Path.home() / ".bashrc"
+    export_line = '\n# Added by simple-mcp-server\nexport PATH="$HOME/.local/bin:$PATH"\n'
+
+    try:
+        # Check if already added
+        if bashrc.exists():
+            content = bashrc.read_text()
+            if '.local/bin' in content:
+                return True  # Already there
+
+        # Append to bashrc
+        with open(bashrc, 'a') as f:
+            f.write(export_line)
+        return True
+    except Exception:
         return False
 
 
