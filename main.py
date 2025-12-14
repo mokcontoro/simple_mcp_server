@@ -44,6 +44,7 @@ if SUPABASE_URL and SUPABASE_ANON_KEY:
 
 # Load local config (server creator info from CLI login)
 local_config = load_config()
+print(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email: {local_config.email}, user_id: {local_config.user_id}", flush=True)
 
 # In-memory stores (use Redis/DB in production)
 registered_clients: dict[str, dict] = {}
@@ -708,12 +709,17 @@ def check_authorization(token_data: dict) -> bool:
     creator_user_id = local_config.user_id
     connecting_user_id = token_data.get("user_id")
 
+    print(f"[AUTH] ========== AUTHORIZATION CHECK ==========", flush=True)
+    print(f"[AUTH] local_config.is_valid(): {local_config.is_valid()}", flush=True)
+    print(f"[AUTH] local_config.email: {local_config.email}", flush=True)
     print(f"[AUTH] Creator user_id: {creator_user_id}", flush=True)
     print(f"[AUTH] Connecting user_id: {connecting_user_id}", flush=True)
+    print(f"[AUTH] token_data keys: {list(token_data.keys())}", flush=True)
+    print(f"[AUTH] token_data user_email: {token_data.get('user_email')}", flush=True)
 
     # If no creator configured, allow all authenticated users
     if not creator_user_id:
-        print("[AUTH] No creator configured, allowing access", flush=True)
+        print("[AUTH] WARNING: No creator configured, allowing access", flush=True)
         return True
 
     # Check if connecting user matches creator
