@@ -19,8 +19,9 @@ class CallbackHandler(BaseHTTPRequestHandler):
     """Handle OAuth callback from browser."""
 
     def log_message(self, format, *args):
-        """Suppress default logging."""
-        pass
+        """Log requests for debugging."""
+        import sys
+        print(f"\n  [CALLBACK] {args[0]}", file=sys.stderr, flush=True)
 
     def do_GET(self):
         """Handle callback GET request."""
@@ -173,13 +174,25 @@ def run_login_flow() -> bool:
     webbrowser.open(login_url)
 
     # Start local callback server
-    server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+    # Use "" to bind to all interfaces for better cross-platform compatibility
+    try:
+        server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+    except OSError as e:
+        print(f"\n[X] Failed to start callback server on port {port}: {e}")
+        print("  Trying alternative binding...")
+        try:
+            server = HTTPServer(("", port), CallbackHandler)
+        except OSError as e2:
+            print(f"[X] Failed to start callback server: {e2}")
+            return False
+
     server.login_result = None
     server.login_error = None
     server.should_stop = False
     server.timeout = 1  # Check every second
 
-    print("Waiting for login...", end="", flush=True)
+    print(f"Waiting for login (callback server on port {port})...", flush=True)
+    print("  (If browser shows connection error, check firewall settings)", flush=True)
 
     # Wait for callback (timeout after 5 minutes)
     max_wait = 300
@@ -187,6 +200,9 @@ def run_login_flow() -> bool:
     while not server.should_stop and waited < max_wait:
         server.handle_request()
         waited += 1
+        # Print progress dot every 30 seconds
+        if waited % 30 == 0:
+            print(".", end="", flush=True)
 
     print()
 
