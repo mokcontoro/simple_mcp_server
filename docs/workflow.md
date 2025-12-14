@@ -1,6 +1,6 @@
 # Workflow for Simple MCP Server
 
-**Copyright (c) 2024 Contoro. All rights reserved.**
+**Copyright (c) 2025 Contoro. All rights reserved.**
 
 This software is proprietary and confidential. Unauthorized copying, modification, distribution, or use of this software is strictly prohibited without the express written permission of Contoro.
 

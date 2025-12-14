@@ -1,6 +1,6 @@
 # Installation Guide
 
-**Copyright (c) 2024 Contoro. All rights reserved.**
+**Copyright (c) 2025 Contoro. All rights reserved.**
 
 This guide covers installing and using simple-mcp-server on your local machine.
 

@@ -1,6 +1,6 @@
 """CLI entry point for simple-mcp-server.
 
-Copyright (c) 2024 Contoro. All rights reserved.
+Copyright (c) 2025 Contoro. All rights reserved.
 
 This runs the LOCAL MCP server on the user's machine.
 On first run, it opens a browser for login via Railway.
@@ -531,14 +531,14 @@ def cmd_logout():
 def cmd_version():
     """Show version information."""
     print(f"simple-mcp-server v{VERSION}")
-    print("Copyright (c) 2024 Contoro. All rights reserved.")
+    print("Copyright (c) 2025 Contoro. All rights reserved.")
 
 
 def cmd_help():
     """Show detailed help."""
     print("""
 Simple MCP Server - Local MCP server with OAuth
-Copyright (c) 2024 Contoro. All rights reserved.
+Copyright (c) 2025 Contoro. All rights reserved.
 
 USAGE:
     simple-mcp-server <command>
