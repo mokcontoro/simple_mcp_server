@@ -42,24 +42,26 @@ def init_cli_routes(supabase_client):
 
 
 @router.get("/cli-login")
-async def cli_login_page(session: str = "", port: str = ""):
+async def cli_login_page(session: str = "", port: str = "", host: str = "127.0.0.1"):
     """Show CLI login form (used by installer)."""
     if not session or not port:
         return HTMLResponse("<h1>Invalid request. Missing session or port.</h1>", status_code=400)
 
     cli_sessions[session] = {
         "port": port,
+        "host": host,  # Callback host (127.0.0.1 or WSL IP)
         "created_at": int(time.time()),
         "expires_at": int(time.time()) + 600
     }
 
-    return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=""))
+    return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, host=host, error=""))
 
 
 @router.post("/cli-login")
 async def cli_login_submit(
     session: str = Form(...),
     port: str = Form(...),
+    host: str = Form("127.0.0.1"),
     email: str = Form(...),
     password: str = Form(...)
 ):
@@ -71,6 +73,9 @@ async def cli_login_submit(
     if time.time() > cli_data["expires_at"]:
         del cli_sessions[session]
         return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
+
+    # Get host from session data (fallback to form value)
+    callback_host = cli_data.get("host", host)
 
     user_id = None
     access_token = None
@@ -92,10 +97,10 @@ async def cli_login_submit(
                 refresh_token = response.session.refresh_token
             else:
                 error_html = '<div class="error">Invalid email or password</div>'
-                return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
+                return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
         except Exception as e:
             error_html = f'<div class="error">Authentication failed: {str(e)}</div>'
-            return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, error=error_html))
+            return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
     del cli_sessions[session]
 
@@ -105,30 +110,33 @@ async def cli_login_submit(
         "access_token": access_token,
         "refresh_token": refresh_token or "",
     })
-    callback_url = f"http://127.0.0.1:{port}/callback?{callback_params}"
+    callback_url = f"http://{callback_host}:{port}/callback?{callback_params}"
+    logger.info(f"[CLI-LOGIN] Redirecting to callback: {callback_host}:{port}")
 
     return RedirectResponse(url=callback_url, status_code=302)
 
 
 @router.get("/cli-signup")
-async def cli_signup_page(session: str = "", port: str = ""):
+async def cli_signup_page(session: str = "", port: str = "", host: str = "127.0.0.1"):
     """Show CLI signup form (used by installer)."""
     if not session or not port:
         return HTMLResponse("<h1>Invalid request. Missing session or port.</h1>", status_code=400)
 
     cli_sessions[session] = {
         "port": port,
+        "host": host,
         "created_at": int(time.time()),
         "expires_at": int(time.time()) + 600
     }
 
-    return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=""))
+    return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=host, error=""))
 
 
 @router.post("/cli-signup")
 async def cli_signup_submit(
     session: str = Form(...),
     port: str = Form(...),
+    host: str = Form("127.0.0.1"),
     name: str = Form(...),
     organization: str = Form(""),
     email: str = Form(...),
@@ -144,20 +152,23 @@ async def cli_signup_submit(
         del cli_sessions[session]
         return HTMLResponse("<h1>Session expired. Please try again.</h1>", status_code=400)
 
+    # Get host from session data (fallback to form value)
+    callback_host = cli_data.get("host", host)
+
     if not name.strip():
         error_html = '<div class="error">Name is required</div>'
-        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
     if password != confirm_password:
         error_html = '<div class="error">Passwords do not match</div>'
-        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
     if len(password) < 6:
         error_html = '<div class="error">Password must be at least 6 characters</div>'
-        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
 
     if not _supabase:
-        return RedirectResponse(url=f"/cli-login?session={session}&port={port}", status_code=302)
+        return RedirectResponse(url=f"/cli-login?session={session}&port={port}&host={callback_host}", status_code=302)
 
     try:
         user_metadata = {"name": name.strip()}
@@ -173,14 +184,14 @@ async def cli_signup_submit(
         })
 
         if response.user:
-            return RedirectResponse(url=f"/cli-login?session={session}&port={port}", status_code=302)
+            return RedirectResponse(url=f"/cli-login?session={session}&port={port}&host={callback_host}", status_code=302)
         else:
             error_html = '<div class="error">Failed to create account</div>'
-            return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+            return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
     except Exception as e:
         error_msg = str(e)
         if "already registered" in error_msg.lower():
             error_html = '<div class="error">An account with this email already exists</div>'
         else:
             error_html = f'<div class="error">Signup failed: {error_msg}</div>'
-        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, error=error_html))
+        return HTMLResponse(CLI_SIGNUP_PAGE.format(session=session, port=port, host=callback_host, error=error_html))

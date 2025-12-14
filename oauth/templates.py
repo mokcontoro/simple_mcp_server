@@ -229,6 +229,7 @@ CLI_LOGIN_PAGE = """
         <form method="POST" action="/cli-login">
             <input type="hidden" name="session" value="{session}">
             <input type="hidden" name="port" value="{port}">
+            <input type="hidden" name="host" value="{host}">
             <div class="form-group">
                 <label for="email">Email</label>
                 <input type="email" id="email" name="email" required placeholder="your@email.com">
@@ -240,7 +241,7 @@ CLI_LOGIN_PAGE = """
             <button type="submit">Sign In</button>
         </form>
         <div class="signup-link">
-            Don't have an account? <a href="/cli-signup?session={session}&port={port}">Sign up</a>
+            Don't have an account? <a href="/cli-signup?session={session}&port={port}&host={host}">Sign up</a>
         </div>
     </div>
 </body>
@@ -287,6 +288,7 @@ CLI_SIGNUP_PAGE = """
         <form method="POST" action="/cli-signup">
             <input type="hidden" name="session" value="{session}">
             <input type="hidden" name="port" value="{port}">
+            <input type="hidden" name="host" value="{host}">
             <div class="form-group">
                 <label for="name">Name</label>
                 <input type="text" id="name" name="name" required placeholder="Your name">
@@ -310,7 +312,7 @@ CLI_SIGNUP_PAGE = """
             <button type="submit">Create Account</button>
         </form>
         <div class="login-link">
-            Already have an account? <a href="/cli-login?session={session}&port={port}">Sign in</a>
+            Already have an account? <a href="/cli-login?session={session}&port={port}&host={host}">Sign in</a>
         </div>
     </div>
 </body>

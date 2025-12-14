@@ -1,7 +1,9 @@
 """Setup flow for simple-mcp-server (browser-based login)."""
+import os
 import re
 import secrets
 import socket
+import subprocess
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -15,12 +17,60 @@ from config import save_config, update_config_tunnel
 SERVER_URL = "https://simplemcpserver-production-e610.up.railway.app"
 
 
+def is_wsl() -> bool:
+    """Check if running inside WSL."""
+    # Check for WSL-specific indicators
+    if os.path.exists("/proc/version"):
+        try:
+            with open("/proc/version", "r") as f:
+                version = f.read().lower()
+                if "microsoft" in version or "wsl" in version:
+                    return True
+        except:
+            pass
+    # Also check WSL_DISTRO_NAME environment variable
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    return False
+
+
+def get_wsl_host_ip() -> str:
+    """Get the Windows host IP from WSL's perspective.
+
+    In WSL2, the Windows host can be reached via the IP in /etc/resolv.conf
+    or via the special hostname 'host.docker.internal' (if Docker is installed).
+    """
+    # Try to get from /etc/resolv.conf (nameserver is usually the Windows host)
+    try:
+        with open("/etc/resolv.conf", "r") as f:
+            for line in f:
+                if line.startswith("nameserver"):
+                    ip = line.split()[1]
+                    # Verify it's not a loopback
+                    if not ip.startswith("127."):
+                        return ip
+    except:
+        pass
+
+    # Fallback: try hostname -I to get WSL's own IP
+    try:
+        result = subprocess.run(["hostname", "-I"], capture_output=True, text=True)
+        if result.returncode == 0:
+            ips = result.stdout.strip().split()
+            if ips:
+                return ips[0]
+    except:
+        pass
+
+    return ""
+
+
 class CallbackHandler(BaseHTTPRequestHandler):
     """Handle OAuth callback from browser."""
 
     def log_message(self, format, *args):
-        """Suppress default logging."""
-        pass
+        """Log requests for debugging."""
+        print(f"\n  [CALLBACK] {args[0]}")
 
     def do_GET(self):
         """Handle callback GET request."""
@@ -163,8 +213,18 @@ def run_login_flow() -> bool:
     session_id = secrets.token_urlsafe(32)
     port = find_free_port()
 
-    # Build login URL
-    login_url = f"{SERVER_URL}/cli-login?session={session_id}&port={port}"
+    # Detect WSL and determine callback host
+    running_in_wsl = is_wsl()
+    if running_in_wsl:
+        wsl_ip = get_wsl_host_ip()
+        # Use WSL's own IP for the callback (Windows browser -> WSL)
+        callback_host = wsl_ip if wsl_ip else "localhost"
+        print(f"[WSL detected] Using callback address: {callback_host}:{port}")
+    else:
+        callback_host = "127.0.0.1"
+
+    # Build login URL with the appropriate callback host
+    login_url = f"{SERVER_URL}/cli-login?session={session_id}&port={port}&host={callback_host}"
 
     print("Opening browser for login...")
     print(f"If browser doesn't open, visit:\n  {login_url}\n")
@@ -173,14 +233,15 @@ def run_login_flow() -> bool:
     webbrowser.open(login_url)
 
     # Start local callback server
-    # Bind to 0.0.0.0 to accept connections from any interface (needed for WSL2)
+    # Bind to 0.0.0.0 to accept connections from any interface
+    print(f"[DEBUG] Starting callback server on 0.0.0.0:{port}")
     server = HTTPServer(("0.0.0.0", port), CallbackHandler)
     server.login_result = None
     server.login_error = None
     server.should_stop = False
     server.timeout = 1  # Check every second
 
-    print("Waiting for login...", end="", flush=True)
+    print("Waiting for login callback...", end="", flush=True)
 
     # Wait for callback (timeout after 5 minutes)
     max_wait = 300
