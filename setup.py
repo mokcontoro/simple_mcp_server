@@ -119,10 +119,20 @@ def prompt_robot_name() -> str:
         print()
 
 
-def create_tunnel(robot_name: str, user_id: str, access_token: str) -> dict:
+def create_tunnel(robot_name: str, user_id: str, access_token: str, force: bool = False) -> dict:
     """Call Railway API to create Cloudflare tunnel.
 
-    Returns dict with success, tunnel_token, tunnel_url, or error.
+    Args:
+        robot_name: Unique name for the robot
+        user_id: User's Supabase ID
+        access_token: User's access token
+        force: If True and tunnel exists for same user, return existing tunnel
+
+    Returns dict with:
+        - success: bool
+        - tunnel_token, tunnel_url: on success
+        - error: error message on failure
+        - owned_by_user: True if tunnel exists and is owned by this user
     """
     try:
         response = requests.post(
@@ -130,7 +140,8 @@ def create_tunnel(robot_name: str, user_id: str, access_token: str) -> dict:
             data={
                 "robot_name": robot_name,
                 "user_id": user_id,
-                "access_token": access_token
+                "access_token": access_token,
+                "force": "true" if force else "false"
             },
             timeout=60
         )
@@ -229,10 +240,41 @@ def run_login_flow() -> bool:
                 error = tunnel_result.get("error", "Unknown error")
                 print(f"[X] Tunnel creation failed: {error}")
 
-                # Check if name is taken - allow retry
+                # Check if name is taken
                 if "already taken" in error.lower() or "already exists" in error.lower():
-                    print("  Please choose a different name.\n")
-                    continue
+                    # Check if owned by same user - offer to reuse
+                    if tunnel_result.get("owned_by_user"):
+                        print(f"\n  You already own the tunnel '{robot_name}.robotmcp.ai'.")
+                        reuse = input("  Reuse this tunnel? (y/n): ").strip().lower()
+                        if reuse == 'y':
+                            print(f"\nReusing tunnel {robot_name}.robotmcp.ai...")
+                            # Retry with force=True to get existing tunnel
+                            tunnel_result = create_tunnel(
+                                robot_name=robot_name,
+                                user_id=result["user_id"],
+                                access_token=result["access_token"],
+                                force=True
+                            )
+                            if tunnel_result.get("success"):
+                                update_config_tunnel(
+                                    robot_name=robot_name,
+                                    tunnel_token=tunnel_result["tunnel_token"],
+                                    tunnel_url=tunnel_result["tunnel_url"]
+                                )
+                                print(f"[OK] Tunnel reused: {tunnel_result['tunnel_url']}")
+                                print(f"  Tunnel token saved to config.\n")
+                                return True
+                            else:
+                                print(f"[X] Failed to reuse tunnel: {tunnel_result.get('error')}")
+                                print("  Please try a different name.\n")
+                                continue
+                        else:
+                            print("  Please choose a different name.\n")
+                            continue
+                    else:
+                        # Taken by another user
+                        print("  Please choose a different name.\n")
+                        continue
                 else:
                     # Other error - don't retry
                     print("  You can retry by running: simple-mcp-server")
