@@ -2,6 +2,7 @@
 import re
 import secrets
 import socket
+import threading
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -55,9 +56,6 @@ class CallbackHandler(BaseHTTPRequestHandler):
             else:
                 self.server.login_error = "Missing credentials"
                 self._send_response("Login failed. Missing credentials.")
-
-            # Signal to stop server
-            self.server.should_stop = True
         else:
             self.send_error(404)
 
@@ -178,15 +176,21 @@ def run_login_flow() -> bool:
     # Let the server choose its own port to avoid race conditions
     try:
         server, port = create_callback_server()
-        print(f"Callback server started on port {port}", flush=True)
     except OSError as e:
         print(f"\n[X] Failed to start callback server: {e}")
         return False
 
     server.login_result = None
     server.login_error = None
-    server.should_stop = False
-    server.timeout = 1  # Check every second
+
+    # Run server in a background thread (more reliable than handle_request loop)
+    def run_server():
+        server.serve_forever()
+
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+
+    print(f"Callback server listening on http://127.0.0.1:{port}/", flush=True)
 
     # Build login URL with the actual port
     login_url = f"{SERVER_URL}/cli-login?session={session_id}&port={port}"
@@ -198,18 +202,20 @@ def run_login_flow() -> bool:
     webbrowser.open(login_url)
 
     print(f"Waiting for login...", flush=True)
-    print("  (If browser shows connection error, the server may have an issue)", flush=True)
 
     # Wait for callback (timeout after 5 minutes)
+    import time
     max_wait = 300
     waited = 0
-    while not server.should_stop and waited < max_wait:
-        server.handle_request()
+    while server.login_result is None and server.login_error is None and waited < max_wait:
+        time.sleep(1)
         waited += 1
         # Print progress dot every 30 seconds
         if waited % 30 == 0:
             print(".", end="", flush=True)
 
+    # Shutdown server
+    server.shutdown()
     print()
 
     if server.login_error:
