@@ -511,24 +511,11 @@ async def create_cloudflare_tunnel(robot_name: str) -> dict:
 async def create_tunnel_endpoint(
     robot_name: str = Form(...),
     user_id: str = Form(...),
-    access_token: str = Form(...),
-    force: str = Form("false")
+    access_token: str = Form(...)
 ):
     """Create a Cloudflare tunnel for a robot.
 
     Requires valid Supabase access token for authentication.
-
-    Args:
-        robot_name: Unique name for the tunnel (e.g., "myrobot" -> myrobot.robotmcp.ai)
-        user_id: User's Supabase UUID
-        access_token: Valid Supabase access token
-        force: If "true" and user owns existing tunnel, return existing credentials
-
-    Returns:
-        success: True on success
-        tunnel_token, tunnel_url: Tunnel credentials on success
-        error: Error message on failure
-        owned_by_user: True if tunnel exists and is owned by requesting user
     """
     # Validate robot name
     is_valid, error_msg = validate_robot_name(robot_name)
@@ -547,70 +534,15 @@ async def create_tunnel_endpoint(
             logger.error(f"Token validation failed: {e}")
             return {"success": False, "error": "Authentication failed"}
 
-    # Check if tunnel already exists in database
-    if supabase:
-        try:
-            existing = supabase.table("tunnels").select("*").eq("robot_name", robot_name).execute()
-
-            if existing.data and len(existing.data) > 0:
-                tunnel_record = existing.data[0]
-
-                # Check ownership
-                if tunnel_record["user_id"] == user_id:
-                    # Same user owns this tunnel
-                    if force == "true":
-                        # Return existing tunnel credentials
-                        logger.info(f"Returning existing tunnel for {robot_name} (user: {user_id})")
-                        return {
-                            "success": True,
-                            "tunnel_token": tunnel_record["tunnel_token"],
-                            "tunnel_url": f"https://{robot_name}.{CLOUDFLARE_DOMAIN}"
-                        }
-                    else:
-                        # Tell client this user owns it (they can retry with force)
-                        return {
-                            "success": False,
-                            "error": f"Robot name '{robot_name}' is already taken",
-                            "owned_by_user": True
-                        }
-                else:
-                    # Different user owns this tunnel
-                    return {
-                        "success": False,
-                        "error": f"Robot name '{robot_name}' is already taken",
-                        "owned_by_user": False
-                    }
-        except Exception as e:
-            logger.warning(f"Database check failed (proceeding with DNS check): {e}")
-
-    # Fallback: Check DNS if database check didn't find anything
+    # Check if robot name is already taken
     if await check_dns_exists(robot_name):
-        # DNS exists but not in our database - owned by unknown user
-        return {
-            "success": False,
-            "error": f"Robot name '{robot_name}' is already taken",
-            "owned_by_user": False
-        }
+        return {"success": False, "error": f"Robot name '{robot_name}' is already taken"}
 
-    # Create new tunnel
+    # Create tunnel
     result = await create_cloudflare_tunnel(robot_name)
 
     if "error" in result:
         return {"success": False, "error": result["error"]}
-
-    # Save tunnel to database
-    if supabase:
-        try:
-            supabase.table("tunnels").insert({
-                "robot_name": robot_name,
-                "user_id": user_id,
-                "tunnel_id": result["tunnel_id"],
-                "tunnel_token": result["tunnel_token"]
-            }).execute()
-            logger.info(f"Saved tunnel {robot_name} to database for user {user_id}")
-        except Exception as e:
-            logger.error(f"Failed to save tunnel to database: {e}")
-            # Don't fail the request - tunnel was created successfully
 
     return {
         "success": True,
