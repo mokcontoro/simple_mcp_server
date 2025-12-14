@@ -173,7 +173,8 @@ def run_login_flow() -> bool:
     webbrowser.open(login_url)
 
     # Start local callback server
-    server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+    # Bind to 0.0.0.0 to accept connections from any interface (needed for WSL2)
+    server = HTTPServer(("0.0.0.0", port), CallbackHandler)
     server.login_result = None
     server.login_error = None
     server.should_stop = False
