@@ -89,6 +89,31 @@ def check_cloudflared_service() -> bool:
         return False
 
 
+def check_cloudflared_process() -> bool:
+    """Check if any cloudflared tunnel process is running."""
+    if platform.system() == "Windows":
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq cloudflared.exe"],
+                capture_output=True,
+                text=True
+            )
+            return "cloudflared.exe" in result.stdout
+        except Exception:
+            return False
+    else:
+        # Linux/macOS: use pgrep
+        try:
+            result = subprocess.run(
+                ["pgrep", "-x", "cloudflared"],
+                capture_output=True,
+                text=True
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+
 def is_server_running() -> bool:
     """Check if MCP server is already running on port 8000."""
     if platform.system() == "Windows":
@@ -659,16 +684,23 @@ def cmd_status():
     if check_cloudflared():
         print(f"  Status:   Installed (system)")
         print(f"  Path:     {shutil.which('cloudflared')}")
-        if check_cloudflared_service():
-            print("  Service:  RUNNING (may cause conflicts!)")
-        else:
-            print("  Service:  Not running")
     elif local_bin.exists():
         print(f"  Status:   Installed (local)")
         print(f"  Path:     {local_bin}")
     else:
         print("  Status:   Not installed")
         print("  Install:  https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/")
+
+    # Show tunnel process status
+    if check_cloudflared_process():
+        print("  Tunnel:   Running")
+    else:
+        print("  Tunnel:   Not running")
+
+    # Windows service warning (only on Windows)
+    if platform.system() == "Windows" and check_cloudflared_service():
+        print("  WARNING:  Windows service running (may cause conflicts!)")
+        print("            Stop with: net stop cloudflared")
 
     # Config
     print("\n[Config]")
