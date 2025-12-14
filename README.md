@@ -50,6 +50,134 @@ simple_mcp_server/
 └── pyproject.toml
 ```
 
+## Module Architecture
+
+### Request Flow
+
+```
+MCP Client Request
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│                         main.py                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐   │
+│  │ FastAPI App │──│ CORS        │──│ Route to endpoint   │   │
+│  └─────────────┘  │ Middleware  │  └─────────────────────┘   │
+│                   └─────────────┘            │                │
+└──────────────────────────────────────────────┼────────────────┘
+                                               │
+        ┌──────────────────┬───────────────────┼───────────────────┐
+        │                  │                   │                   │
+        ▼                  ▼                   ▼                   ▼
+   /mcp endpoint    OAuth endpoints     SSE endpoints      CLI endpoints
+   (FastMCP app)    (oauth/endpoints)   (sse.py)          (cli_endpoints)
+        │                  │                   │
+        ▼                  │                   │
+┌───────────────┐          │                   │
+│ OAuth         │          │                   │
+│ Middleware    │◀─────────┴───────────────────┘
+│ (if enabled)  │     (shared token validation)
+└───────┬───────┘
+        │
+        ▼
+┌───────────────┐
+│   tools.py    │
+│  MCP Tools    │
+│ (echo, ping)  │
+└───────────────┘
+```
+
+### Module Descriptions
+
+#### Core Modules
+
+| Module | Lines | Role |
+|--------|-------|------|
+| **main.py** | 165 | Application entry point. Creates FastAPI app, configures middleware, mounts MCP app at `/mcp`, includes routers conditionally based on `ENABLE_OAUTH` flag. |
+| **tools.py** | 33 | Defines MCP tools using FastMCP's `@mcp.tool()` decorator. Contains `echo` and `ping` tools. **Replace this file** to customize MCP functionality. |
+| **config.py** | 106 | Manages local configuration (user credentials, tunnel URL, robot name). Persists to `~/.simple-mcp-server/config.json`. |
+
+#### OAuth Module (`oauth/`)
+
+| Module | Lines | Role |
+|--------|-------|------|
+| **endpoints.py** | 380 | OAuth 2.1 flow endpoints: discovery metadata (`/.well-known/*`), client registration (`/register`), authorization (`/authorize`, `/login`, `/signup`, `/consent`), and token exchange (`/token`). |
+| **middleware.py** | 67 | `MCPOAuthMiddleware` - Validates Bearer tokens on `/mcp` requests. Checks token expiration and creator-only access. Returns 401/403 with RFC 9728 compliant headers. |
+| **stores.py** | 20 | In-memory dictionaries for OAuth state: `registered_clients`, `authorization_codes`, `access_tokens`, `pending_authorizations`, `authenticated_sessions`. |
+| **templates.py** | 318 | HTML templates for login, signup, and consent pages. Shared across OAuth flow and CLI login. |
+
+#### Endpoint Modules
+
+| Module | Lines | Role |
+|--------|-------|------|
+| **sse.py** | 120 | Legacy SSE transport endpoints (`/sse`, `/message`) for backward compatibility with older MCP clients. Includes token validation and creator-only access check. |
+| **cli_endpoints.py** | 165 | Browser-based CLI login endpoints (`/cli-login`, `/cli-signup`). Used by the installer to authenticate users via Supabase and redirect credentials back to local CLI. |
+
+#### CLI Module
+
+| Module | Lines | Role |
+|--------|-------|------|
+| **cli.py** | 862 | Command-line interface for server management. Handles daemon start/stop, Cloudflare tunnel creation, browser-based login flow, and status display. |
+
+### Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        oauth/stores.py                          │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────┐ │
+│  │ registered_      │  │ authorization_   │  │ access_       │ │
+│  │ clients          │  │ codes            │  │ tokens        │ │
+│  │ {client_id: ...} │  │ {code: ...}      │  │ {token: ...}  │ │
+│  └────────┬─────────┘  └────────┬─────────┘  └───────┬───────┘ │
+│           │                     │                    │         │
+└───────────┼─────────────────────┼────────────────────┼─────────┘
+            │                     │                    │
+            ▼                     ▼                    ▼
+     /register             /token (exchange)    middleware.py
+     (create client)       (create token)       (validate token)
+                                                       │
+                                                       ▼
+                                               /mcp, /sse, /message
+                                               (protected endpoints)
+```
+
+### Initialization Sequence
+
+1. **main.py loads** → Environment variables, Supabase client, local config
+2. **tools.py imported** → FastMCP instance created with tool definitions
+3. **MCP HTTP app created** → With OAuth middleware (if `ENABLE_OAUTH=true`)
+4. **FastAPI app created** → With MCP app's lifespan for proper task group init
+5. **Routers initialized** → `init_*_routes()` called with dependencies
+6. **Routers included** → OAuth (conditional), SSE, CLI endpoints added
+7. **Server starts** → Uvicorn runs on configured host/port
+
+### Dependency Injection Pattern
+
+Each router module uses an `init_*_routes()` function to receive dependencies:
+
+```python
+# oauth/endpoints.py
+def init_oauth_routes(server_url: str, supabase_client):
+    global _server_url, _supabase
+    _server_url = server_url
+    _supabase = supabase_client
+
+# sse.py
+def init_sse_routes(server_url: str, local_config, mcp_instance):
+    global _server_url, _local_config, _mcp
+    ...
+
+# cli_endpoints.py
+def init_cli_routes(supabase_client):
+    global _supabase
+    ...
+```
+
+This pattern allows:
+- Modules to be imported without side effects
+- Dependencies to be injected from main.py
+- Easy testing with mock dependencies
+
 ### For ros-mcp-server Merge
 
 To adapt for ros-mcp-server:
