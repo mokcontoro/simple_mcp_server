@@ -18,7 +18,6 @@ import time
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlencode
 
 # Configure logging to stderr with immediate flush
@@ -55,8 +54,6 @@ else:
 # Environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
-JWT_SECRET = os.getenv("JWT_SECRET", SUPABASE_JWT_SECRET or secrets.token_hex(32))
 
 # Transport configuration (aligned with ros-mcp-server)
 MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
@@ -70,12 +67,12 @@ if SUPABASE_URL and SUPABASE_ANON_KEY:
 
 # Load local config (server creator info from CLI login)
 local_config = load_config()
-logger.warning(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email: {local_config.email}, user_id: {local_config.user_id}")
+logger.info(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email: {local_config.email}")
 
 # SERVER_URL: Use tunnel URL if available (for local MCP server), otherwise fallback to env/default
 # This is critical for OAuth - MCP clients need to authenticate on THIS server, not Railway
 SERVER_URL = local_config.tunnel_url or os.getenv("SERVER_URL", "https://simplemcpserver-production-e610.up.railway.app")
-logger.warning(f"[STARTUP] SERVER_URL set to: {SERVER_URL}")
+logger.info(f"[STARTUP] SERVER_URL: {SERVER_URL}")
 
 # In-memory stores (use Redis/DB in production)
 registered_clients: dict[str, dict] = {}
@@ -121,7 +118,7 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
         # Check Bearer token
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
-            logger.warning(f"[MCP-AUTH] No Bearer token in request to {request.url.path}")
+            logger.debug(f"[MCP] No Bearer token in request")
             return JSONResponse(
                 {"error": "unauthorized", "error_description": "Missing or invalid Authorization header"},
                 status_code=401,
@@ -132,7 +129,7 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
         token_data = access_tokens.get(token)
 
         if not token_data or time.time() >= token_data.get("expires_at", 0):
-            logger.warning(f"[MCP-AUTH] Invalid or expired token")
+            logger.debug(f"[MCP] Invalid or expired token")
             return JSONResponse(
                 {"error": "unauthorized", "error_description": "Invalid or expired token"},
                 status_code=401,
@@ -144,13 +141,13 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
         connecting_user_id = token_data.get("user_id")
 
         if creator_user_id and connecting_user_id != creator_user_id:
-            logger.warning(f"[MCP-AUTH] DENIED: {connecting_user_id} != {creator_user_id}")
+            logger.warning(f"[MCP] Access denied: user {connecting_user_id} is not the server creator")
             return JSONResponse(
                 {"error": "forbidden", "error_description": "Access denied: not authorized for this server"},
                 status_code=403
             )
 
-        logger.warning(f"[MCP-AUTH] Authorized: {token_data.get('user_email')}")
+        logger.debug(f"[MCP] Authorized: {token_data.get('user_email')}")
         return await call_next(request)
 
 
@@ -516,7 +513,7 @@ async def login_submit(
         })
 
         if response.user:
-            logger.warning(f"[LOGIN] User authenticated: {response.user.email}, user_id: {response.user.id}")
+            logger.info(f"[LOGIN] User authenticated: {response.user.email}")
             authenticated_sessions[session] = {
                 "email": response.user.email,
                 "user_id": response.user.id
@@ -690,18 +687,14 @@ async def token(
         except:
             return JSONResponse({"error": "invalid_request"}, status_code=400)
 
-    logger.warning(f"[TOKEN] ========== TOKEN REQUEST ==========")
-    logger.warning(f"[TOKEN] grant_type: {grant_type}")
-    logger.warning(f"[TOKEN] client_id: {client_id}")
+    logger.debug(f"[TOKEN] grant_type: {grant_type}, client_id: {client_id}")
 
     if grant_type == "authorization_code":
         if not code or code not in authorization_codes:
-            logger.warning(f"[TOKEN] Invalid code: {code}")
+            logger.debug(f"[TOKEN] Invalid authorization code")
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
 
         auth_data = authorization_codes[code]
-        logger.warning(f"[TOKEN] auth_data user_id: {auth_data.get('user_id')}")
-        logger.warning(f"[TOKEN] auth_data user_email: {auth_data.get('user_email')}")
 
         # Check expiration
         if time.time() > auth_data["expires_at"]:
@@ -730,7 +723,7 @@ async def token(
             "created_at": int(time.time()),
             "expires_at": int(time.time()) + expires_in
         }
-        logger.warning(f"[TOKEN] Created access token with user_id: {auth_data.get('user_id')}")
+        logger.info(f"[TOKEN] Access token created for user: {auth_data.get('user_email')}")
 
         # Clean up used code
         del authorization_codes[code]
@@ -768,22 +761,6 @@ async def token(
 
 
 # ============== Server Info Endpoints ==============
-
-@app.get("/debug/create-test-token")
-async def debug_create_test_token(user_id: str = "test-user-wrong", email: str = "wrong@test.com"):
-    """DEBUG: Create a test token for authorization testing."""
-    test_token = f"test-token-{secrets.token_hex(8)}"
-    access_tokens[test_token] = {
-        "client_id": "test-client",
-        "scope": "mcp:tools",
-        "user_id": user_id,
-        "user_email": email,
-        "created_at": int(time.time()),
-        "expires_at": int(time.time()) + 3600
-    }
-    logger.warning(f"[DEBUG] Created test token for user_id={user_id}, email={email}")
-    return {"token": test_token, "user_id": user_id, "email": email}
-
 
 @app.get("/health")
 async def health_check():
@@ -836,33 +813,28 @@ def forbidden_response(error_description: str) -> JSONResponse:
 
 
 def check_authorization(token_data: dict) -> bool:
-    """Check if the token belongs to an authorized user."""
+    """Check if the token belongs to an authorized user (creator-only access)."""
     creator_user_id = local_config.user_id
     connecting_user_id = token_data.get("user_id")
 
-    logger.warning(f"[AUTH] ========== AUTHORIZATION CHECK ==========")
-    logger.warning(f"[AUTH] Creator user_id: {creator_user_id}")
-    logger.warning(f"[AUTH] Connecting user_id: {connecting_user_id}")
-
     if not creator_user_id:
-        logger.warning("[AUTH] WARNING: No creator configured, allowing access")
+        logger.debug("[SSE] No creator configured, allowing access")
         return True
 
     if connecting_user_id != creator_user_id:
-        logger.warning(f"[AUTH] DENIED: {connecting_user_id} != {creator_user_id}")
+        logger.warning(f"[SSE] Access denied: user {connecting_user_id} is not the server creator")
         raise HTTPException(
             status_code=403,
             detail="Access denied: not authorized for this server"
         )
 
-    logger.warning("[AUTH] ALLOWED: user is server creator")
     return True
 
 
 @app.get("/sse")
 async def sse_endpoint(request: Request) -> Response:
     """Legacy SSE endpoint for MCP client connections (backward compatibility)."""
-    logger.warning(f"[SSE] ========== LEGACY SSE ENDPOINT HIT ==========")
+    logger.debug("[SSE] Legacy SSE endpoint hit")
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header.startswith("Bearer "):
@@ -878,8 +850,6 @@ async def sse_endpoint(request: Request) -> Response:
         check_authorization(token_data)
     except HTTPException as e:
         return forbidden_response(e.detail)
-
-    logger.warning(f"[SSE] Authorization passed, starting MCP session")
 
     async with sse_transport.connect_sse(
         request.scope, request.receive, request._send

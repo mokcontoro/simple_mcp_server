@@ -135,15 +135,17 @@ Output: "pong from {owner}'s MCP server"
 
 ### ChatGPT
 1. Go to **Settings → Connectors → Add**
-2. Set MCP Server URL to `https://{your-name}.robotmcp.ai/sse`
+2. Set MCP Server URL to `https://{your-name}.robotmcp.ai/mcp`
 3. Select OAuth authentication
 4. Log in with your Supabase account (must be the server creator)
 
 ### Claude.ai
 1. Add as an MCP integration
-2. Use SSE endpoint: `https://{your-name}.robotmcp.ai/sse`
+2. Use endpoint: `https://{your-name}.robotmcp.ai/mcp`
 3. OAuth flow will redirect to login page
 4. Log in with your Supabase account (must be the server creator)
+
+> **Note**: Legacy SSE endpoint (`/sse`) is still available for backward compatibility.
 
 ## Troubleshooting
 

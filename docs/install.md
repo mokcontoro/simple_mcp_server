@@ -187,20 +187,20 @@ python cli.py --version
 ### ChatGPT
 
 1. Go to **Settings > Connectors > Add**
-2. Enter MCP Server URL: `https://your-robot.robotmcp.ai/mcp` (Streamable HTTP)
-   - Or use legacy SSE: `https://your-robot.robotmcp.ai/sse`
+2. Enter MCP Server URL: `https://your-robot.robotmcp.ai/mcp`
 3. Select **OAuth** authentication
 4. Log in with your Supabase account
 
 ### Claude.ai
 
 1. Add as an MCP integration
-2. Use Streamable HTTP endpoint: `https://your-robot.robotmcp.ai/mcp`
-   - Or use legacy SSE: `https://your-robot.robotmcp.ai/sse`
+2. Use endpoint: `https://your-robot.robotmcp.ai/mcp`
 3. Complete OAuth flow when prompted
 4. Log in with your Supabase account
 
 **Important:** Only the server creator can connect. Other users will receive a `403 Forbidden` error.
+
+> **Legacy Support**: SSE endpoint (`/sse`) is still available for backward compatibility with older MCP clients.
 
 ---
 
