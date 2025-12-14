@@ -63,6 +63,32 @@ def check_cloudflared() -> bool:
     return shutil.which("cloudflared") is not None
 
 
+def check_cloudflared_service() -> bool:
+    """Check if cloudflared is running as a Windows service (can cause conflicts)."""
+    import platform
+    if platform.system() != "Windows":
+        return False
+    try:
+        result = subprocess.run(
+            ["sc", "query", "cloudflared"],
+            capture_output=True,
+            text=True
+        )
+        return "RUNNING" in result.stdout
+    except Exception:
+        return False
+
+
+def warn_cloudflared_service():
+    """Warn user if cloudflared service is running."""
+    if check_cloudflared_service():
+        print("\n[WARNING] cloudflared Windows service is running!")
+        print("  This may interfere with your tunnel. To stop it:")
+        print("  1. Open Admin Command Prompt")
+        print("  2. Run: net stop cloudflared")
+        print("  Or permanently uninstall: cloudflared service uninstall\n")
+
+
 def run_cloudflared_tunnel(tunnel_token: str) -> subprocess.Popen:
     """Start cloudflared tunnel in background.
 
@@ -75,6 +101,80 @@ def run_cloudflared_tunnel(tunnel_token: str) -> subprocess.Popen:
     )
 
 
+def kill_cloudflared_processes():
+    """Kill any running cloudflared processes started by this CLI."""
+    import platform
+    if platform.system() == "Windows":
+        # Kill cloudflared processes (except system services)
+        try:
+            result = subprocess.run(
+                ["taskkill", "/F", "/IM", "cloudflared.exe"],
+                capture_output=True,
+                text=True
+            )
+            if "SUCCESS" in result.stdout:
+                print("  Stopped cloudflared tunnel processes.")
+        except Exception:
+            pass
+    else:
+        # Unix-like systems
+        try:
+            subprocess.run(["pkill", "-f", "cloudflared tunnel run"], capture_output=True)
+            print("  Stopped cloudflared tunnel processes.")
+        except Exception:
+            pass
+
+
+def kill_processes_on_port(port: int):
+    """Kill any processes listening on the specified port."""
+    import platform
+    if platform.system() == "Windows":
+        try:
+            # Find PIDs listening on the port
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True
+            )
+            for line in result.stdout.split('\n'):
+                if f":{port}" in line and "LISTENING" in line:
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        pid = parts[-1]
+                        try:
+                            subprocess.run(
+                                ["taskkill", "/F", "/PID", pid],
+                                capture_output=True
+                            )
+                            print(f"  Killed process {pid} on port {port}")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+    else:
+        # Unix-like systems
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True,
+                text=True
+            )
+            for pid in result.stdout.strip().split('\n'):
+                if pid:
+                    subprocess.run(["kill", "-9", pid], capture_output=True)
+                    print(f"  Killed process {pid} on port {port}")
+        except Exception:
+            pass
+
+
+def stop_server():
+    """Stop any running MCP server and tunnel processes."""
+    print("Stopping MCP server...")
+    kill_processes_on_port(8000)
+    kill_cloudflared_processes()
+    print("Server stopped.")
+
+
 def logout():
     """Log out by clearing stored credentials."""
     config = load_config()
@@ -83,6 +183,10 @@ def logout():
         return
 
     email = config.email
+
+    # Stop server first
+    stop_server()
+
     clear_config()
     print(f"Logged out: {email}")
     print("Config removed from ~/.simple-mcp-server/config.json")
@@ -133,6 +237,11 @@ def show_status():
         cloudflared_path = shutil.which("cloudflared")
         print(f"  Status: Installed")
         print(f"  Path: {cloudflared_path}")
+        if check_cloudflared_service():
+            print(f"  Windows Service: RUNNING (may cause conflicts!)")
+            print(f"    Stop with: net stop cloudflared (as Admin)")
+        else:
+            print(f"  Windows Service: Not running (good)")
     else:
         print(f"  Status: Not installed")
         print(f"  Install: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/")
@@ -163,11 +272,21 @@ def main():
         action="store_true",
         help="Show current status and configuration"
     )
+    parser.add_argument(
+        "--stop",
+        action="store_true",
+        help="Stop any running server and tunnel processes"
+    )
     args = parser.parse_args()
 
     # Handle status
     if args.status:
         show_status()
+        sys.exit(0)
+
+    # Handle stop
+    if args.stop:
+        stop_server()
         sys.exit(0)
 
     # Handle logout
@@ -207,6 +326,9 @@ def main():
         print("  https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/")
         sys.exit(1)
 
+    # Warn if cloudflared Windows service is running
+    warn_cloudflared_service()
+
     # Track tunnel process for cleanup
     tunnel_process = None
 
@@ -220,6 +342,11 @@ def main():
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+    # Clean up any stale processes before starting
+    print("Cleaning up old processes...")
+    kill_cloudflared_processes()
+    kill_processes_on_port(8000)
 
     # Start cloudflared tunnel
     print(f"Starting tunnel: {config.tunnel_url}")

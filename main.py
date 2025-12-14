@@ -44,7 +44,6 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
-SERVER_URL = os.getenv("SERVER_URL", "https://simplemcpserver-production-e610.up.railway.app")
 JWT_SECRET = os.getenv("JWT_SECRET", SUPABASE_JWT_SECRET or secrets.token_hex(32))
 
 # Initialize Supabase client
@@ -55,6 +54,11 @@ if SUPABASE_URL and SUPABASE_ANON_KEY:
 # Load local config (server creator info from CLI login)
 local_config = load_config()
 logger.warning(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email: {local_config.email}, user_id: {local_config.user_id}")
+
+# SERVER_URL: Use tunnel URL if available (for local MCP server), otherwise fallback to env/default
+# This is critical for OAuth - MCP clients need to authenticate on THIS server, not Railway
+SERVER_URL = local_config.tunnel_url or os.getenv("SERVER_URL", "https://simplemcpserver-production-e610.up.railway.app")
+logger.warning(f"[STARTUP] SERVER_URL set to: {SERVER_URL}")
 
 # In-memory stores (use Redis/DB in production)
 registered_clients: dict[str, dict] = {}
@@ -866,9 +870,12 @@ async def message_endpoint(request: Request) -> Response:
     except HTTPException as e:
         return forbidden_response(e.detail)
 
-    return await sse_transport.handle_post_message(
+    # handle_post_message sends response directly via request._send
+    # Don't return its result to avoid duplicate response
+    await sse_transport.handle_post_message(
         request.scope, request.receive, request._send
     )
+    return Response()
 
 
 # Dual routes for /mcp/* paths (MCP client compatibility)
