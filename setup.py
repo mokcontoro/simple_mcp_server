@@ -69,8 +69,8 @@ class CallbackHandler(BaseHTTPRequestHandler):
     """Handle OAuth callback from browser."""
 
     def log_message(self, format, *args):
-        """Log requests for debugging."""
-        print(f"\n  [CALLBACK] {args[0]}")
+        """Suppress default logging."""
+        pass
 
     def do_GET(self):
         """Handle callback GET request."""
@@ -219,8 +219,6 @@ def run_login_flow() -> bool:
         wsl_ip = get_wsl_ip()
         # Use WSL's own IP for the callback (Windows browser -> WSL)
         callback_host = wsl_ip if wsl_ip else "localhost"
-        print(f"[WSL detected] WSL IP: {wsl_ip}")
-        print(f"[WSL detected] Using callback address: {callback_host}:{port}")
     else:
         callback_host = "127.0.0.1"
 
@@ -234,8 +232,7 @@ def run_login_flow() -> bool:
     webbrowser.open(login_url)
 
     # Start local callback server
-    # Bind to 0.0.0.0 to accept connections from any interface
-    print(f"[DEBUG] Starting callback server on 0.0.0.0:{port}")
+    # Bind to 0.0.0.0 to accept connections from any interface (needed for WSL2)
     server = HTTPServer(("0.0.0.0", port), CallbackHandler)
     server.login_result = None
     server.login_error = None
@@ -267,17 +264,6 @@ def run_login_flow() -> bool:
         )
         print(f"\n[OK] Logged in as: {result['email']}")
         print(f"  Config saved to: ~/.simple-mcp-server/config.json\n")
-
-        # Debug: Display user info
-        print("  [DEBUG] User Info:")
-        print(f"    user_id: {result['user_id']}")
-        print(f"    email: {result['email']}")
-        print(f"    name: {result.get('name') or '(not set)'}")
-        print(f"    organization: {result.get('organization') or '(not set)'}")
-        print(f"    access_token: {result['access_token'][:20]}...")
-        refresh = result.get('refresh_token') or ''
-        print(f"    refresh_token: {refresh[:20] + '...' if refresh else '(none)'}")
-        print()
 
         # Prompt for robot name and create tunnel (retry on name conflict)
         while True:

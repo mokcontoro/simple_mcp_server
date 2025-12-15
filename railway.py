@@ -275,11 +275,9 @@ async def cli_login_submit(
                 access_token = response.session.access_token
                 refresh_token = response.session.refresh_token
                 # Extract user metadata
-                print(f"[DEBUG] user_metadata: {response.user.user_metadata}", flush=True)
                 if response.user.user_metadata:
                     name = response.user.user_metadata.get("name", "")
                     organization = response.user.user_metadata.get("organization", "")
-                print(f"[DEBUG] Extracted - name: {name}, org: {organization}", flush=True)
             else:
                 error_html = '<div class="error">Invalid email or password</div>'
                 return HTMLResponse(CLI_LOGIN_PAGE.format(session=session, port=port, host=callback_host, error=error_html))
