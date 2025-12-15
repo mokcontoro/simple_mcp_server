@@ -2,146 +2,84 @@
 
 **Copyright (c) 2025 Contoro. All rights reserved.**
 
-This software is proprietary and confidential. Unauthorized copying, modification, distribution, or use of this software is strictly prohibited without the express written permission of Contoro.
-
 ---
 
 ## Architecture
 
 ```
-                    ┌──────────────────┐
-                    │    Supabase      │
-                    │                  │
-                    │  • User accounts │
-                    │  • Auth API      │
-                    └────────┬─────────┘
-                             │
-          ┌──────────────────┼──────────────────┐
-          │                  │                  │
-          ▼                  ▼                  │
-┌──────────────────┐  ┌──────────────────┐      │
-│ Local Computer   │  │     Railway      │      │
-│  (runs main.py)  │  │  (auth server)   │      │
-│                  │  │                  │      │
-│  • MCP server    │  │  • /cli-login    │      │
-│  • OAuth flow    │  │  • /cli-signup   │      │
-│  • MCP endpoints │  │  • /create-tunnel│      │
-│  • Tools         │  │  • Dashboard     │      │
-│  • Auth check    │  │    (future)      │      │
-└────────┬─────────┘  └──────────────────┘      │
-         │                     ▲                │
-         │ Cloudflare          │ Browser        │
-         │ Tunnel              │ (first-run)    │
-         ▼                     │                │
-┌──────────────────┐    ┌──────────────────┐    │
-│   MCP Client     │    │  CLI Installer   │────┘
-│ (ChatGPT, Claude)│    │  (cli.py)        │
-└──────────────────┘    └──────────────────┘
+┌──────────────────┐
+│    Supabase      │  User accounts, auth API
+└────────┬─────────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌────────┐  ┌────────┐
+│ Local  │  │Railway │  CLI login, tunnel creation
+│Computer│  │        │
+│        │  └────────┘
+│ MCP    │       ▲
+│ Server │       │ Browser (first-run)
+└───┬────┘       │
+    │ Tunnel  ┌──┴───┐
+    ▼         │ CLI  │
+┌────────┐    └──────┘
+│  MCP   │
+│ Client │  ChatGPT, Claude
+└────────┘
 ```
 
-- **Local Computer**: Runs MCP server (`main.py`), handles OAuth + MCP endpoints, creator-only access control
-- **Supabase**: Auth backend, user accounts, token validation
-- **Railway**: CLI login pages, tunnel creation API, future dashboard (NOT in MCP data path)
-- **MCP Client**: Connects directly to Local Computer via Cloudflare tunnel
-- **Cloudflare Tunnel**: Secure access via `{name}.robotmcp.ai`
+## Module Structure
+
+```
+simple_mcp_server/
+├── main.py              # FastAPI app entry (~165 lines)
+├── tools.py             # MCP tools (echo, ping)
+├── cli.py               # CLI daemon management
+├── config.py            # Config management
+├── setup.py             # Browser login flow
+├── railway.py           # Railway deployment
+├── sse.py               # Legacy SSE endpoints
+├── cli_endpoints.py     # CLI login endpoints
+└── oauth/               # OAuth module (optional)
+    ├── endpoints.py     # OAuth routes
+    ├── middleware.py    # Token validation
+    ├── stores.py        # In-memory token stores
+    └── templates.py     # HTML templates
+```
 
 ---
 
-## Phase 1: Core MCP Server ✅ COMPLETE
+## Status
 
-| Task | Status |
-|------|--------|
-| MCP server with OAuth 2.1 | ✅ Done |
-| Echo/ping tools | ✅ Done |
-| Supabase auth (login/signup) | ✅ Done |
-| Cloudflare tunnel (manual) | ✅ Done |
-
-**Milestone**: MCP server works locally, accessible via Cloudflare tunnel
-
----
-
-## Phase 2: Package & CLI ✅ COMPLETE
-
-| Task | Status |
-|------|--------|
-| pyproject.toml for pipx | ✅ Done |
-| cli.py entry point | ✅ Done |
-| --status command | ✅ Done |
-| --stop command | ✅ Done |
-| --logout command | ✅ Done |
-| Process cleanup on startup | ✅ Done |
-
-**Milestone**: `python cli.py` manages server lifecycle
-
----
-
-## Phase 3: Installer & First-Run Setup ✅ COMPLETE
-
-| Task | Status |
-|------|--------|
-| First-run config detection | ✅ Done |
-| Browser-based OAuth login flow | ✅ Done |
-| Robot naming prompt | ✅ Done |
-| Cloudflare tunnel creation | ✅ Done |
-| Config saved to ~/.simple-mcp-server/ | ✅ Done |
-| Cloudflared service conflict detection | ✅ Done |
-
-**Milestone**: `python cli.py` auto-configures on first run
-
----
-
-## Phase 4: Access Control ✅ COMPLETE
-
-| Task | Status |
-|------|--------|
-| Creator-only access (user_id check) | ✅ Done |
-| Dynamic SERVER_URL from tunnel config | ✅ Done |
-| 403 Forbidden for unauthorized users | ✅ Done |
-| OAuth flow on local server | ✅ Done |
-
-**Milestone**: Only server creator can connect via MCP clients
-
----
-
-## Phase 5: Railway Dashboard ⬚ TODO
-
-| Task | Status |
-|------|--------|
-| Web UI (Supabase auth) | ⬚ TODO |
-| Robot registry | ⬚ TODO |
-| Access control (share with users) | ⬚ TODO |
-| API endpoints for robot management | ⬚ TODO |
-
-**Milestone**: Users can register robots and share access via dashboard
-
----
-
-## Phase 6: Multi-User & Production ⬚ TODO
-
-| Task | Status |
-|------|--------|
-| Multi-user access to single robot | ⬚ TODO |
-| Allowed users list in config | ⬚ TODO |
-| MCP client testing (ChatGPT, Claude) | ⬚ TODO |
-| Documentation | ✅ Done |
-| PyPI publication | ⬚ TODO |
-
-**Milestone**: End-to-end flow works with shared access
-
----
-
-## Current Focus
-
-**Phase 5**: Build Railway dashboard for robot management and access sharing.
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Core MCP server with OAuth 2.1 | ✅ Complete |
+| 2 | CLI package (pipx install) | ✅ Complete |
+| 3 | First-run setup (browser login, tunnel) | ✅ Complete |
+| 4 | Creator-only access control | ✅ Complete |
+| 5 | Modularization for ros-mcp-server | ✅ Complete |
+| 6 | Railway dashboard | TODO |
+| 7 | Multi-user access | TODO |
 
 ---
 
 ## Version History
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2024-12 | Initial release with OAuth 2.1 |
-| 1.1.0 | 2024-12 | CLI login, tunnel setup |
-| 1.2.0 | 2024-12 | Creator-only access control, CLI improvements |
-| 1.3.0 | 2025-01 | Auto-download cloudflared, bundled credentials, improved UX |
-| 1.4.0 | 2025-01 | Background daemon mode, auto-add PATH to bashrc |
+| Version | Changes |
+|---------|---------|
+| 1.7.0 | Modular architecture, WSL2 support |
+| 1.6.0 | ENABLE_OAUTH flag, optional auth |
+| 1.5.0 | Background daemon mode |
+| 1.4.0 | Auto-download cloudflared |
+| 1.3.0 | Creator-only access control |
+| 1.2.0 | CLI login, tunnel setup |
+| 1.0.0 | Initial release |
+
+---
+
+## For ros-mcp-server Merge
+
+1. Replace `tools.py` with ROS tools
+2. Set `ENABLE_OAUTH=false` to disable auth
+3. Keep or remove CLI/tunnel as needed
