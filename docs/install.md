@@ -6,30 +6,42 @@ This guide covers installing and using simple-mcp-server on your local machine.
 
 ---
 
-## Quick Install (Linux/macOS)
+## Quick Install (Recommended)
 
-One-line installation with automatic cloudflared download:
+### Install via pipx
 
 ```bash
-pipx install simple-mcp-server
+pipx install git+https://github.com/mokcontoro/simple_mcp_server.git
 ```
 
-Then run:
+### Run
+
 ```bash
 simple-mcp-server
 ```
 
 On first run:
-- cloudflared will **auto-download** if not found (to `~/.local/bin/`)
 - Browser opens for login/signup
 - You'll be prompted for a robot name
+- Cloudflared auto-downloads if not found
 - Server starts at `https://yourname.robotmcp.ai`
 
-**Note:** You may need to add `~/.local/bin` to your PATH:
+### Update
+
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
-# Add to ~/.bashrc for permanent PATH update
+pipx uninstall simple-mcp-server
+pipx install git+https://github.com/mokcontoro/simple_mcp_server.git
 ```
+
+### Uninstall
+
+```bash
+simple-mcp-server stop
+pipx uninstall simple-mcp-server
+rm -rf ~/.simple-mcp-server  # Remove config (optional)
+```
+
+**Note (WSL users):** The CLI automatically detects WSL and handles callback URLs for Windows browser authentication.
 
 ---
 
@@ -297,36 +309,42 @@ This 403 error means you're trying to connect with a different account than the 
 
 ## Updating
 
-To update to the latest version:
+### pipx Install
+
+```bash
+pipx uninstall simple-mcp-server
+pipx install git+https://github.com/mokcontoro/simple_mcp_server.git
+```
+
+### Manual Install
 
 ```bash
 cd simple_mcp_server
 git pull
 pip install -r requirements.txt
-python cli.py restart
+simple-mcp-server restart
 ```
 
 ---
 
 ## Uninstalling
 
-1. Stop the server:
-   ```bash
-   python cli.py stop
-   ```
+### pipx Install
 
-2. Remove configuration:
-   ```bash
-   python cli.py logout
-   ```
+```bash
+simple-mcp-server stop
+pipx uninstall simple-mcp-server
+rm -rf ~/.simple-mcp-server  # Remove config (optional)
+```
 
-3. Delete the repository:
-   ```bash
-   cd ..
-   rm -rf simple_mcp_server
-   ```
+### Manual Install
 
-4. (Optional) Remove virtual environment if created outside the repo.
+```bash
+simple-mcp-server stop
+simple-mcp-server logout
+cd ..
+rm -rf simple_mcp_server
+```
 
 ---
 
