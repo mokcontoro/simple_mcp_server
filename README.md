@@ -30,14 +30,16 @@ simple_mcp_server/
 ├── tools.py             # MCP tools (echo, ping) - replace for custom tools
 ├── cli.py               # CLI daemon management
 ├── config.py            # Config management (~/.simple-mcp-server/)
+├── setup.py             # Browser-based login flow
 ├── sse.py               # Legacy SSE endpoints
-├── cli_endpoints.py     # CLI login endpoints
 └── oauth/               # OAuth module (optional)
     ├── endpoints.py     # OAuth routes
     ├── middleware.py    # Token validation
     ├── stores.py        # In-memory token stores
     └── templates.py     # HTML templates
 ```
+
+**Cloud Service:** CLI login and tunnel creation are handled by [robotmcp-cloud](https://github.com/robotmcp/robotmcp_cloud) at `https://app.robotmcp.ai`.
 
 See [docs/project_plan.md](docs/project_plan.md) for architecture details.
 
@@ -58,6 +60,7 @@ See [docs/project_plan.md](docs/project_plan.md) for architecture details.
 | `SUPABASE_ANON_KEY` | Supabase anonymous key |
 | `SUPABASE_JWT_SECRET` | JWT secret for token validation |
 | `ENABLE_OAUTH` | Set `false` to disable OAuth (default: `true`) |
+| `ROBOTMCP_CLOUD_URL` | Cloud service URL (default: `https://app.robotmcp.ai`) |
 
 ## API Endpoints
 
