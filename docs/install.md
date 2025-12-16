@@ -2,7 +2,9 @@
 
 **Copyright (c) 2025 Contoro. All rights reserved.**
 
-This guide covers installing and using simple-mcp-server on your local machine.
+This guide covers installing and using simple-mcp-server (v1.8.0) on your local machine.
+
+> **Note:** CLI login and tunnel creation are handled by the cloud service at `https://app.robotmcp.ai`.
 
 ---
 

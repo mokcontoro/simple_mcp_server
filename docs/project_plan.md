@@ -14,10 +14,10 @@
     ┌────┴────┐
     │         │
     ▼         ▼
-┌────────┐  ┌────────┐
-│ Local  │  │Railway │  CLI login, tunnel creation
-│Computer│  │        │
-│        │  └────────┘
+┌────────┐  ┌─────────────────┐
+│ Local  │  │ robotmcp-cloud  │  CLI login, tunnel creation
+│Computer│  │ app.robotmcp.ai │
+│        │  └─────────────────┘
 │ MCP    │       ▲
 │ Server │       │ Browser (first-run)
 └───┬────┘       │
@@ -29,18 +29,18 @@
 └────────┘
 ```
 
+**Cloud Service:** https://github.com/robotmcp/robotmcp_cloud
+
 ## Module Structure
 
 ```
 simple_mcp_server/
-├── main.py              # FastAPI app entry (~165 lines)
-├── tools.py             # MCP tools (echo, ping)
+├── main.py              # FastAPI app entry
+├── tools.py             # MCP tools (echo, ping) - replace for custom tools
 ├── cli.py               # CLI daemon management
-├── config.py            # Config management
-├── setup.py             # Browser login flow
-├── railway.py           # Railway deployment
+├── config.py            # Config management (~/.simple-mcp-server/)
+├── setup.py             # Browser login flow (uses app.robotmcp.ai)
 ├── sse.py               # Legacy SSE endpoints
-├── cli_endpoints.py     # CLI login endpoints
 └── oauth/               # OAuth module (optional)
     ├── endpoints.py     # OAuth routes
     ├── middleware.py    # Token validation
@@ -59,8 +59,9 @@ simple_mcp_server/
 | 3 | First-run setup (browser login, tunnel) | ✅ Complete |
 | 4 | Creator-only access control | ✅ Complete |
 | 5 | Modularization for ros-mcp-server | ✅ Complete |
-| 6 | Railway dashboard | TODO |
-| 7 | Multi-user access | TODO |
+| 6 | Separate cloud service (robotmcp-cloud) | ✅ Complete |
+| 7 | User dashboard | TODO |
+| 8 | Multi-user access | TODO |
 
 ---
 
@@ -68,6 +69,7 @@ simple_mcp_server/
 
 | Version | Changes |
 |---------|---------|
+| 1.8.0 | Separate cloud service to robotmcp-cloud (app.robotmcp.ai) |
 | 1.7.0 | Modular architecture, WSL2 support |
 | 1.6.0 | ENABLE_OAUTH flag, optional auth |
 | 1.5.0 | Background daemon mode |

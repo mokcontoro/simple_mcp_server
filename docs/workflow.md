@@ -10,7 +10,7 @@
 |-----------|------|
 | **Local Computer** | Runs MCP server, handles OAuth, hosts tools |
 | **Supabase** | User accounts, authentication |
-| **Railway** | CLI login pages, tunnel creation |
+| **robotmcp-cloud** | CLI login pages, tunnel creation (app.robotmcp.ai) |
 | **Cloudflare Tunnel** | Routes `{name}.robotmcp.ai` to local server |
 | **MCP Client** | ChatGPT, Claude - connects via tunnel |
 
@@ -19,8 +19,8 @@
 ## First-Run Flow
 
 ```
-User                CLI                 Railway             Supabase
- │                   │                    │                    │
+User                CLI              robotmcp-cloud       Supabase
+ │                   │               (app.robotmcp.ai)        │
  │ simple-mcp-server │                    │                    │
  │──────────────────>│                    │                    │
  │                   │ Open browser       │                    │
@@ -88,6 +88,7 @@ simple-mcp-server logout    # Clear credentials
 | `ENABLE_OAUTH` | Set `false` to disable auth (default: `true`) |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anonymous key |
+| `ROBOTMCP_CLOUD_URL` | Cloud service URL (default: `https://app.robotmcp.ai`) |
 
 ---
 
