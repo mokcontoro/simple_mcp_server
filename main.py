@@ -120,10 +120,7 @@ from sse import router as sse_router, init_sse_routes
 init_sse_routes(SERVER_URL, local_config, mcp)
 app.include_router(sse_router)
 
-# CLI login endpoints
-from cli_endpoints import router as cli_router, init_cli_routes
-init_cli_routes(supabase)
-app.include_router(cli_router)
+# Note: CLI login endpoints moved to robotmcp_cloud service
 
 
 # ============== Server Info Endpoints ==============
