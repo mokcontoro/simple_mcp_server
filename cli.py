@@ -634,6 +634,39 @@ def cmd_restart():
     cmd_start()
 
 
+def cmd_login():
+    """Login to RobotMCP (browser-based OAuth)."""
+    from setup import run_login_flow
+
+    config = load_config()
+
+    # Check if already logged in
+    if config.is_valid():
+        print(f"\nAlready logged in as: {config.email}")
+        response = input("Re-login with a different account? [y/N]: ").strip().lower()
+        if response != 'y':
+            print("Login cancelled.")
+            return
+
+        # Stop server if running before re-login
+        running, pid = is_daemon_running()
+        if running:
+            print("\nStopping running server first...")
+            cmd_stop()
+            print()
+
+    # Run login flow
+    success = run_login_flow()
+    if success:
+        config = load_config()
+        print(f"Logged in as: {config.email}")
+        print(f"Robot URL: {config.tunnel_url}")
+        print("\nRun 'simple-mcp-server start' to start the server.")
+    else:
+        print("\n[ERROR] Login failed. Please try again.")
+        sys.exit(1)
+
+
 def cmd_status():
     """Show current status."""
     config = load_config()
@@ -754,6 +787,7 @@ COMMANDS:
     stop        Stop the running server and tunnel
     restart     Restart the server
     status      Show current status and configuration
+    login       Log in to RobotMCP (browser OAuth)
     logout      Log out and clear stored credentials
     version     Show version information
     help        Show this help message
@@ -772,9 +806,9 @@ EXAMPLES:
     tail -f ~/.simple-mcp-server/server.log
 
 QUICK START:
-    1. Run 'simple-mcp-server start'
+    1. Run 'simple-mcp-server start' (or 'login' to login without starting)
     2. Log in via browser (opens automatically)
-    3. Enter a robot name (e.g., 'myrobot')
+    3. Select existing server or enter a new robot name (e.g., 'myrobot')
     4. Server starts in background at https://myrobot.robotmcp.ai
     5. Copy the MCP URL to ChatGPT/Claude (or SSE URL for legacy clients)
 
@@ -818,7 +852,7 @@ Examples:
         "command",
         nargs="?",
         default="start",
-        choices=["start", "stop", "restart", "status", "logout", "version", "help"],
+        choices=["start", "stop", "restart", "status", "login", "logout", "version", "help"],
         help="Command to run (default: start)"
     )
 
@@ -848,6 +882,8 @@ Examples:
         cmd_restart()
     elif args.command == "status":
         cmd_status()
+    elif args.command == "login":
+        cmd_login()
     elif args.command == "logout":
         cmd_logout()
     elif args.command == "version":

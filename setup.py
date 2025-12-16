@@ -169,6 +169,68 @@ def prompt_robot_name() -> str:
         print()
 
 
+def fetch_servers(access_token: str) -> dict:
+    """Fetch user's existing servers from cloud.
+
+    Returns dict with:
+        - success: bool
+        - owned: list of owned servers
+        - shared: list of shared servers
+        - error: error message on failure
+    """
+    try:
+        response = requests.get(
+            f"{SERVER_URL}/servers",
+            params={"access_token": access_token},
+            timeout=30
+        )
+        return response.json()
+    except requests.RequestException as e:
+        return {"success": False, "error": f"Network error: {e}"}
+    except Exception as e:
+        return {"success": False, "error": f"Error: {e}"}
+
+
+def select_server(owned: list, shared: list) -> dict | None:
+    """Display server selection menu.
+
+    Returns:
+        - Selected server dict if user chooses existing
+        - None if user wants to create new server
+    """
+    all_servers = []
+
+    if owned:
+        print("\n--- Your Servers ---")
+        for i, server in enumerate(owned):
+            all_servers.append(server)
+            status = "active" if server.get("is_active", True) else "inactive"
+            print(f"  [{len(all_servers)}] {server['robot_name']}.robotmcp.ai ({status})")
+
+    if shared:
+        print("\n--- Shared With You ---")
+        for i, server in enumerate(shared):
+            all_servers.append(server)
+            print(f"  [{len(all_servers)}] {server['robot_name']}.robotmcp.ai")
+
+    print(f"\n  [0] Create a new server")
+    print()
+
+    while True:
+        try:
+            choice = input("Select server (0 for new): ").strip()
+            if not choice:
+                continue
+            num = int(choice)
+            if num == 0:
+                return None  # Create new
+            if 1 <= num <= len(all_servers):
+                return all_servers[num - 1]
+            print(f"  Please enter 0-{len(all_servers)}")
+        except ValueError:
+            print("  Please enter a number")
+
+
 def create_tunnel(robot_name: str, user_id: str, access_token: str, force: bool = False) -> dict:
     """Call Railway API to create Cloudflare tunnel.
 
@@ -263,7 +325,38 @@ def run_login_flow() -> bool:
             refresh_token=result.get("refresh_token"),
         )
         print(f"\n[OK] Logged in as: {result['email']}")
-        print(f"  Config saved to: ~/.simple-mcp-server/config.json\n")
+        print(f"  Config saved to: ~/.simple-mcp-server/config.json")
+
+        # Fetch existing servers
+        print("\nChecking for existing servers...")
+        servers_result = fetch_servers(result["access_token"])
+
+        if servers_result.get("success"):
+            owned = servers_result.get("owned", [])
+            shared = servers_result.get("shared", [])
+
+            if owned or shared:
+                # User has existing servers - offer selection
+                selected = select_server(owned, shared)
+
+                if selected:
+                    # Use existing server
+                    update_config_tunnel(
+                        robot_name=selected["robot_name"],
+                        tunnel_token=selected["tunnel_token"],
+                        tunnel_url=selected["tunnel_url"]
+                    )
+                    print(f"\n[OK] Selected server: {selected['tunnel_url']}")
+                    print(f"  Tunnel token saved to config.\n")
+                    return True
+                # else: user wants to create new server, continue below
+            else:
+                print("  No existing servers found.")
+        else:
+            # Failed to fetch servers - continue with new server flow
+            print(f"  Could not fetch servers: {servers_result.get('error', 'Unknown error')}")
+
+        print()  # Spacing before robot name prompt
 
         # Prompt for robot name and create tunnel (retry on name conflict)
         while True:
