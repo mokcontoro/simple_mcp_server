@@ -14,7 +14,7 @@ from config import save_config, update_config_tunnel
 
 
 # Cloud service URL (configurable via environment variable)
-SERVER_URL = os.getenv("ROBOTMCP_CLOUD_URL", "https://simplemcpserver-production-e610.up.railway.app")
+SERVER_URL = os.getenv("ROBOTMCP_CLOUD_URL", "https://app.robotmcp.ai")
 
 
 def is_wsl() -> bool:

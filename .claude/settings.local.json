@@ -43,7 +43,27 @@
       "Bash(cmd //c \"taskkill /F /PID 33860\")",
       "Bash(nslookup:*)",
       "Bash(ipconfig:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(rm:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "WebFetch(domain:fastmcp.wiki)",
+      "Bash(timeout 5 venv/Scripts/python:*)",
+      "Bash(cmd //c \"taskkill /F /PID 34040\")",
+      "Bash(cmd //c \"taskkill /F /PID 32136\")",
+      "Bash(cmd //c \"taskkill /F /PID 7848\")",
+      "Bash(cmd //c \"taskkill /F /PID 15224\")",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(set ENABLE_OAUTH=false)",
+      "Bash(cmd //c \"taskkill /F /PID 19188\")",
+      "Bash(cmd //c \"taskkill /F /PID 23220\")",
+      "Bash(wsl -e bash -c \"ps aux | grep -E ''python|simple-mcp|uvicorn'' | grep -v grep\")",
+      "Bash(gh repo view:*)",
+      "Bash(git remote add:*)",
+      "Bash(git config:*)",
+      "Bash(git stash:*)"
     ]
   }
 }
