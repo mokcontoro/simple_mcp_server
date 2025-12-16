@@ -34,6 +34,46 @@ def is_wsl() -> bool:
     return False
 
 
+def open_browser(url: str) -> None:
+    """Open URL in browser, handling WSL gracefully."""
+    if is_wsl():
+        # In WSL, try wslview first (from wslu package), then fallback
+        try:
+            result = subprocess.run(
+                ["wslview", url],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Fallback: try to use Windows browser directly
+        try:
+            subprocess.run(
+                ["cmd.exe", "/c", "start", url],
+                capture_output=True,
+                timeout=5
+            )
+            return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    # Default: use webbrowser module (suppress stderr for gio errors)
+    import os
+    import sys
+
+    # Suppress stderr temporarily to hide gio errors
+    old_stderr = sys.stderr
+    try:
+        sys.stderr = open(os.devnull, 'w')
+        webbrowser.open(url)
+    finally:
+        sys.stderr.close()
+        sys.stderr = old_stderr
+
+
 def get_wsl_ip() -> str:
     """Get WSL's own IP address that Windows can reach.
 
@@ -290,8 +330,8 @@ def run_login_flow() -> bool:
     print("Opening browser for login...")
     print(f"If browser doesn't open, visit:\n  {login_url}\n")
 
-    # Open browser
-    webbrowser.open(login_url)
+    # Open browser (handles WSL gracefully)
+    open_browser(login_url)
 
     # Start local callback server
     # Bind to 0.0.0.0 to accept connections from any interface (needed for WSL2)
