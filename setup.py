@@ -112,41 +112,57 @@ class CallbackHandler(BaseHTTPRequestHandler):
         """Suppress default logging."""
         pass
 
+    def _handle_callback(self, params: dict):
+        """Process callback parameters (shared by GET and POST)."""
+        # Extract tokens and user info from callback
+        user_id = params.get("user_id", [None])[0]
+        email = params.get("email", [None])[0]
+        access_token = params.get("access_token", [None])[0]
+        refresh_token = params.get("refresh_token", [None])[0]
+        name = params.get("name", [None])[0]
+        organization = params.get("organization", [None])[0]
+        error = params.get("error", [None])[0]
+
+        if error:
+            self.server.login_error = error
+            self._send_response("Login failed. You can close this window.")
+        elif user_id and email and access_token:
+            self.server.login_result = {
+                "user_id": user_id,
+                "email": email,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "name": name,
+                "organization": organization,
+            }
+            self._send_response("Login successful! You can close this window.")
+        else:
+            self.server.login_error = "Missing credentials"
+            self._send_response("Login failed. Missing credentials.")
+
+        # Signal to stop server
+        self.server.should_stop = True
+
     def do_GET(self):
-        """Handle callback GET request."""
+        """Handle callback GET request (legacy support)."""
         parsed = urlparse(self.path)
 
         if parsed.path == "/callback":
             params = parse_qs(parsed.query)
+            self._handle_callback(params)
+        else:
+            self.send_error(404)
 
-            # Extract tokens and user info from callback
-            user_id = params.get("user_id", [None])[0]
-            email = params.get("email", [None])[0]
-            access_token = params.get("access_token", [None])[0]
-            refresh_token = params.get("refresh_token", [None])[0]
-            name = params.get("name", [None])[0]
-            organization = params.get("organization", [None])[0]
-            error = params.get("error", [None])[0]
+    def do_POST(self):
+        """Handle callback POST request (secure - credentials in body, not URL)."""
+        parsed = urlparse(self.path)
 
-            if error:
-                self.server.login_error = error
-                self._send_response("Login failed. You can close this window.")
-            elif user_id and email and access_token:
-                self.server.login_result = {
-                    "user_id": user_id,
-                    "email": email,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
-                    "name": name,
-                    "organization": organization,
-                }
-                self._send_response("Login successful! You can close this window.")
-            else:
-                self.server.login_error = "Missing credentials"
-                self._send_response("Login failed. Missing credentials.")
-
-            # Signal to stop server
-            self.server.should_stop = True
+        if parsed.path == "/callback":
+            # Read POST body
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_body = self.rfile.read(content_length).decode("utf-8")
+            params = parse_qs(post_body)
+            self._handle_callback(params)
         else:
             self.send_error(404)
 
