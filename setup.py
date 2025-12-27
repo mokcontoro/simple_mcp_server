@@ -37,7 +37,20 @@ def is_wsl() -> bool:
 def open_browser(url: str) -> None:
     """Open URL in browser, handling WSL gracefully."""
     if is_wsl():
-        # In WSL, try wslview first (from wslu package), then fallback
+        # In WSL, use PowerShell Start-Process which handles URLs with & correctly
+        try:
+            # PowerShell properly handles URLs with special characters
+            result = subprocess.run(
+                ["powershell.exe", "-Command", f'Start-Process "{url}"'],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Fallback: try wslview (from wslu package)
         try:
             result = subprocess.run(
                 ["wslview", url],
@@ -49,8 +62,7 @@ def open_browser(url: str) -> None:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-        # Fallback: try to use Windows browser directly
-        # URL must be quoted to prevent & from being interpreted as command separator
+        # Last resort: cmd.exe with quoted URL
         try:
             subprocess.run(
                 ["cmd.exe", "/c", "start", "", url],
