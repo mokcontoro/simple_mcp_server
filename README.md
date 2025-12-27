@@ -21,6 +21,8 @@ See [docs/install.md](docs/install.md) for manual installation and troubleshooti
 - **Cloudflare Tunnel**: Secure access via `{name}.robotmcp.ai`
 - **Creator-Only Access**: Only the server creator can connect
 - **Optional OAuth**: Disable with `ENABLE_OAUTH=false`
+- **Secure CLI Login**: POST-based credential transfer (not URL params)
+- **WSL Support**: Reliable browser opening with PowerShell fallback
 
 ## Project Structure
 
@@ -97,6 +99,13 @@ For ros-mcp-server merge: replace `tools.py` and set `ENABLE_OAUTH=false`.
 - [Installation Guide](docs/install.md) - Setup, troubleshooting, CLI reference
 - [Project Plan](docs/project_plan.md) - Architecture, version history
 - [Workflow](docs/workflow.md) - Flow diagrams, components
+
+## Version History
+
+- **v1.9.0**: Secure POST-based CLI login, WSL browser fix, Claude theme for OAuth pages
+- **v1.8.0**: OAuth templates, CLI improvements
+- **v1.7.0**: Cloudflare tunnel integration
+- **v1.0.0**: Initial release with OAuth 2.1 and Streamable HTTP
 
 ## License
 
