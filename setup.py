@@ -50,9 +50,10 @@ def open_browser(url: str) -> None:
             pass
 
         # Fallback: try to use Windows browser directly
+        # URL must be quoted to prevent & from being interpreted as command separator
         try:
             subprocess.run(
-                ["cmd.exe", "/c", "start", url],
+                ["cmd.exe", "/c", "start", "", url],
                 capture_output=True,
                 timeout=5
             )
