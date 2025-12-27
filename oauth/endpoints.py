@@ -89,6 +89,7 @@ async def register_client(request: Request):
 
     client_id = secrets.token_urlsafe(24)
     client_secret = secrets.token_urlsafe(32)
+    logger.info(f"[REGISTER] Client registration request: {data.get('client_name', 'MCP Client')}")
 
     client_info = {
         "client_id": client_id,
@@ -102,6 +103,7 @@ async def register_client(request: Request):
     }
 
     registered_clients[client_id] = client_info
+    logger.info(f"[REGISTER] Client registered: {client_id[:8]}...")
 
     return JSONResponse({
         "client_id": client_id,
@@ -128,6 +130,7 @@ async def authorize(
     code_challenge_method: str = "S256"
 ):
     """OAuth 2.0 Authorization Endpoint - redirects to login."""
+    logger.info(f"[AUTHORIZE] Authorization request: client_id={client_id[:8] if client_id else 'none'}..., scope={scope}")
     if response_type != "code":
         return JSONResponse({"error": "unsupported_response_type"}, status_code=400)
 
@@ -143,6 +146,7 @@ async def authorize(
         "created_at": int(time.time()),
         "expires_at": int(time.time()) + 600  # 10 minutes
     }
+    logger.info(f"[AUTHORIZE] Session created: {session_id[:8]}..., redirecting to login")
 
     # Redirect to login page
     return RedirectResponse(url=f"/login?session={session_id}", status_code=302)
@@ -151,6 +155,7 @@ async def authorize(
 @router.get("/login")
 async def login_page(session: str = "", registered: str = ""):
     """Show login form."""
+    logger.info(f"[LOGIN] Login page requested: session={session[:8] if session else 'none'}...")
     if not session or session not in pending_authorizations:
         return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
 
@@ -203,9 +208,11 @@ async def login_submit(
             }
             return RedirectResponse(url=f"/consent?session={session}", status_code=302)
         else:
+            logger.info(f"[LOGIN] Login failed: invalid credentials for session {session[:8]}...")
             error_html = '<div class="error">Invalid email or password</div>'
             return HTMLResponse(LOGIN_PAGE.format(session=session, error=error_html, success=""))
     except Exception as e:
+        logger.info(f"[LOGIN] Login failed: authentication error for session {session[:8]}...")
         error_html = f'<div class="error">Authentication failed: {str(e)}</div>'
         return HTMLResponse(LOGIN_PAGE.format(session=session, error=error_html, success=""))
 
@@ -213,6 +220,7 @@ async def login_submit(
 @router.get("/signup")
 async def signup_page(session: str = ""):
     """Show signup form."""
+    logger.info(f"[SIGNUP] Signup page requested: session={session[:8] if session else 'none'}...")
     if not session or session not in pending_authorizations:
         return HTMLResponse("<h1>Invalid or expired session</h1>", status_code=400)
 
@@ -263,15 +271,19 @@ async def signup_submit(
         })
 
         if response.user:
+            logger.info(f"[SIGNUP] Account created: {email}")
             return RedirectResponse(url=f"/login?session={session}&registered=1", status_code=302)
         else:
+            logger.info(f"[SIGNUP] Account creation failed for session: {session[:8]}...")
             error_html = '<div class="error">Failed to create account</div>'
             return HTMLResponse(SIGNUP_PAGE.format(session=session, error=error_html))
     except Exception as e:
         error_msg = str(e)
         if "already registered" in error_msg.lower():
+            logger.info(f"[SIGNUP] Signup failed: email already exists for session: {session[:8]}...")
             error_html = '<div class="error">An account with this email already exists</div>'
         else:
+            logger.info(f"[SIGNUP] Signup failed: {error_msg[:50]} for session: {session[:8]}...")
             error_html = f'<div class="error">Signup failed: {error_msg}</div>'
         return HTMLResponse(SIGNUP_PAGE.format(session=session, error=error_html))
 
@@ -288,6 +300,7 @@ async def consent_page(session: str = ""):
         return RedirectResponse(url=f"/login?session={session}", status_code=302)
 
     user_info = authenticated_sessions[session]
+    logger.info(f"[CONSENT] Consent page shown to user: {user_info.get('email')}")
     return HTMLResponse(CONSENT_PAGE.format(
         session=session,
         user_email=user_info.get("email", "Unknown")
@@ -311,6 +324,7 @@ async def consent_submit(
 
     if action == "deny":
         # User denied access
+        logger.info(f"[CONSENT] User denied access for session: {session[:8]}...")
         del pending_authorizations[session]
         if session in authenticated_sessions:
             del authenticated_sessions[session]
@@ -321,8 +335,9 @@ async def consent_submit(
         return RedirectResponse(url=f"{redirect_uri}?{urlencode(params)}", status_code=302)
 
     # User approved - generate authorization code
-    auth_code = secrets.token_urlsafe(32)
     user_info = authenticated_sessions.get(session, {})
+    logger.info(f"[CONSENT] User granted consent: {user_info.get('email')}")
+    auth_code = secrets.token_urlsafe(32)
 
     authorization_codes[auth_code] = {
         "client_id": auth_data["client_id"],
@@ -335,6 +350,7 @@ async def consent_submit(
         "created_at": int(time.time()),
         "expires_at": int(time.time()) + 600  # 10 minutes
     }
+    logger.info(f"[CONSENT] Authorization code issued for client: {auth_data['client_id'][:8]}...")
 
     # Clean up session data
     del pending_authorizations[session]
@@ -376,11 +392,11 @@ async def token(
         except:
             return JSONResponse({"error": "invalid_request"}, status_code=400)
 
-    logger.debug(f"[TOKEN] grant_type: {grant_type}, client_id: {client_id}")
+    logger.info(f"[TOKEN] Token request: grant_type={grant_type}, client_id={client_id[:8] if client_id else 'none'}...")
 
     if grant_type == "authorization_code":
         if not code or code not in authorization_codes:
-            logger.debug(f"[TOKEN] Invalid authorization code")
+            logger.info("[TOKEN] Token request failed: invalid authorization code")
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
 
         auth_data = authorization_codes[code]
@@ -388,6 +404,7 @@ async def token(
         # Check expiration
         if time.time() > auth_data["expires_at"]:
             del authorization_codes[code]
+            logger.info("[TOKEN] Token request failed: authorization code expired")
             return JSONResponse({"error": "invalid_grant", "error_description": "Code expired"}, status_code=400)
 
         # Verify PKCE
@@ -397,6 +414,7 @@ async def token(
             ).rstrip(b"=").decode()
 
             if expected != auth_data["code_challenge"]:
+                logger.info("[TOKEN] Token request failed: PKCE verification failed")
                 return JSONResponse({"error": "invalid_grant", "error_description": "PKCE verification failed"}, status_code=400)
 
         # Generate tokens
@@ -437,6 +455,7 @@ async def token(
             "created_at": int(time.time()),
             "expires_at": int(time.time()) + expires_in
         }
+        logger.info(f"[TOKEN] Refresh token issued for client: {client_id[:8] if client_id else 'none'}...")
 
         return JSONResponse({
             "access_token": new_access_token,

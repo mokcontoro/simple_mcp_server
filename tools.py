@@ -4,7 +4,11 @@ This module defines the MCP tools (echo, ping) that are exposed to clients.
 For ros-mcp-server merge, replace these with ROS-specific tools.
 """
 
+import logging
+
 from fastmcp import FastMCP
+
+logger = logging.getLogger(__name__)
 
 # Create the FastMCP server instance
 mcp = FastMCP("simple-mcp-server")
@@ -20,6 +24,7 @@ def echo(message: str) -> str:
     Returns:
         The echoed message with a prefix
     """
+    logger.info(f"[TOOL] echo invoked, message length: {len(message)}")
     return f"Echo: {message}"
 
 
@@ -30,4 +35,5 @@ def ping() -> str:
     Returns:
         A pong response
     """
+    logger.info("[TOOL] ping invoked")
     return "pong from Mok's computer"

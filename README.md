@@ -102,6 +102,7 @@ For ros-mcp-server merge: replace `tools.py` and set `ENABLE_OAUTH=false`.
 
 ## Version History
 
+- **v1.10.0**: Comprehensive INFO-level logging for all MCP server activities
 - **v1.9.0**: Secure POST-based CLI login, WSL browser fix, Claude theme for OAuth pages
 - **v1.8.0**: OAuth templates, CLI improvements
 - **v1.7.0**: Cloudflare tunnel integration

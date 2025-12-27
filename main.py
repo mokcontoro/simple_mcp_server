@@ -91,7 +91,7 @@ mcp_http_app = mcp.http_app(
 app = FastAPI(
     title="Simple MCP Server",
     description="A minimal MCP server with echo functionality and OAuth 2.1",
-    version="1.8.0",
+    version="1.10.0",
     lifespan=mcp_http_app.lifespan,  # Required for FastMCP task group initialization
 )
 
@@ -136,7 +136,7 @@ async def root():
     """Root endpoint with server info."""
     response = {
         "name": "Simple MCP Server",
-        "version": "2.0.0",
+        "version": "1.10.0",
         "transport": MCP_TRANSPORT,
         "mcp_endpoint": "/mcp",
         "legacy_sse_endpoint": "/sse",

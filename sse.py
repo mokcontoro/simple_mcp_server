@@ -70,7 +70,7 @@ def check_authorization(token_data: dict) -> bool:
     connecting_user_id = token_data.get("user_id")
 
     if not creator_user_id:
-        logger.debug("[SSE] No creator configured, allowing access")
+        logger.info("[SSE] No creator configured, allowing access")
         return True
 
     if connecting_user_id != creator_user_id:
@@ -86,16 +86,18 @@ def check_authorization(token_data: dict) -> bool:
 @router.get("/sse")
 async def sse_endpoint(request: Request) -> Response:
     """Legacy SSE endpoint for MCP client connections (backward compatibility)."""
-    logger.debug("[SSE] Legacy SSE endpoint hit")
+    logger.info("[SSE] Legacy SSE endpoint hit")
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header.startswith("Bearer "):
+        logger.info("[SSE] Request rejected: no Bearer token")
         return unauthorized_response("Missing or invalid Authorization header")
 
     token = auth_header[7:]
     token_data = access_tokens.get(token)
 
     if not token_data or time.time() >= token_data.get("expires_at", 0):
+        logger.info("[SSE] Request rejected: invalid or expired token")
         return unauthorized_response("Invalid or expired token")
 
     try:
@@ -103,6 +105,7 @@ async def sse_endpoint(request: Request) -> Response:
     except HTTPException as e:
         return forbidden_response(e.detail)
 
+    logger.info(f"[SSE] Connection established for user: {token_data.get('user_email')}")
     async with sse_transport.connect_sse(
         request.scope, request.receive, request._send
     ) as streams:
@@ -119,12 +122,14 @@ async def message_endpoint(request: Request) -> Response:
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header.startswith("Bearer "):
+        logger.info("[SSE] Message rejected: no Bearer token")
         return unauthorized_response("Missing or invalid Authorization header")
 
     token = auth_header[7:]
     token_data = access_tokens.get(token)
 
     if not token_data or time.time() >= token_data.get("expires_at", 0):
+        logger.info("[SSE] Message rejected: invalid or expired token")
         return unauthorized_response("Invalid or expired token")
 
     try:
@@ -132,6 +137,7 @@ async def message_endpoint(request: Request) -> Response:
     except HTTPException as e:
         return forbidden_response(e.detail)
 
+    logger.info(f"[SSE] Message received from user: {token_data.get('user_email')}")
     await sse_transport.handle_post_message(
         request.scope, request.receive, request._send
     )

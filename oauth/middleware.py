@@ -34,7 +34,7 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
         # Check Bearer token
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
-            logger.debug("[MCP] No Bearer token in request")
+            logger.info("[AUTH] Request rejected: no Bearer token")
             return JSONResponse(
                 {"error": "unauthorized", "error_description": "Missing or invalid Authorization header"},
                 status_code=401,
@@ -45,7 +45,7 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
         token_data = access_tokens.get(token)
 
         if not token_data or time.time() >= token_data.get("expires_at", 0):
-            logger.debug("[MCP] Invalid or expired token")
+            logger.info("[AUTH] Request rejected: invalid or expired token")
             return JSONResponse(
                 {"error": "unauthorized", "error_description": "Invalid or expired token"},
                 status_code=401,
@@ -57,11 +57,11 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
         connecting_user_id = token_data.get("user_id")
 
         if creator_user_id and connecting_user_id != creator_user_id:
-            logger.warning(f"[MCP] Access denied: user {connecting_user_id} is not the server creator")
+            logger.warning(f"[AUTH] Access denied: user {connecting_user_id} is not the server creator")
             return JSONResponse(
                 {"error": "forbidden", "error_description": "Access denied: not authorized for this server"},
                 status_code=403
             )
 
-        logger.debug(f"[MCP] Authorized: {token_data.get('user_email')}")
+        logger.info(f"[AUTH] Request authorized: {token_data.get('user_email')}")
         return await call_next(request)
