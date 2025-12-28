@@ -67,6 +67,48 @@ class PlainFormatter(logging.Formatter):
         )
 
 
+class SupabaseFilter(logging.Filter):
+    """Filter to only send meaningful logs to Supabase.
+
+    Reduces noise by filtering out:
+    - HTTP client logs (recursive from Supabase inserts)
+    - MCP internal library logs
+    - Repetitive AUTH "Request authorized" logs
+
+    Keeps:
+    - Business events with specific tags (TOOL, LOGIN, CONSENT, etc.)
+    - WARNING and ERROR level logs
+    """
+
+    # Modules to exclude (library noise)
+    EXCLUDED_MODULES = {'_client', 'server', 'streamable_http_manager'}
+
+    # Tags we want to keep (business events)
+    ALLOWED_TAGS = {'TOOL', 'LOGIN', 'CONSENT', 'REGISTER', 'TOKEN', 'AUTHORIZE', 'STARTUP'}
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Always allow WARNING and above
+        if record.levelno >= logging.WARNING:
+            return True
+
+        # Exclude noisy modules
+        if record.module in self.EXCLUDED_MODULES:
+            return False
+
+        # Check for tag in message
+        message = record.getMessage()
+        tag_match = re.match(r'\[([A-Z_]+)\]', message)
+        if tag_match:
+            tag = tag_match.group(1)
+            # Skip AUTH "Request authorized" (too noisy - logs every request)
+            if tag == 'AUTH' and 'Request authorized' in message:
+                return False
+            return tag in self.ALLOWED_TAGS
+
+        # No tag = skip (library noise)
+        return False
+
+
 class SupabaseHandler(logging.Handler):
     """Logging handler that batches logs and sends to Supabase.
 
@@ -206,6 +248,7 @@ def setup_logging(
             )
             _supabase_handler.setLevel(logging.INFO)
             _supabase_handler.setFormatter(JSONFormatter(robot_name, user_id))
+            _supabase_handler.addFilter(SupabaseFilter())
             root_logger.addHandler(_supabase_handler)
             supabase_enabled = True
         except Exception as e:
