@@ -211,20 +211,16 @@ def setup_logging(
         except Exception as e:
             print(f"[WARNING] Supabase logging setup failed: {e}", file=sys.stderr)
 
+    # Suppress noisy HTTP client logs (Supabase uses httpx)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # Log startup info
     logger = logging.getLogger(__name__)
     if supabase_enabled:
         logger.info(f"[STARTUP] Supabase logging enabled for robot: {robot_name}")
     else:
         logger.info("[STARTUP] Supabase logging disabled (no client)")
-
-    # Debug: Print logging configuration
-    print(f"[DEBUG] Root logger: handlers={root_logger.handlers}, level={root_logger.level}", file=sys.stderr, flush=True)
-    print(f"[DEBUG] Supabase logging: {'enabled' if supabase_enabled else 'disabled'}", file=sys.stderr, flush=True)
-
-    # Verify tools logger will work
-    tools_logger = logging.getLogger('tools')
-    print(f"[DEBUG] tools logger: handlers={tools_logger.handlers}, propagate={tools_logger.propagate}, effective_level={tools_logger.getEffectiveLevel()}", file=sys.stderr, flush=True)
 
     return root_logger
 
