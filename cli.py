@@ -32,7 +32,7 @@ else:
     if _public_env.exists():
         load_dotenv(_public_env)
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
@@ -506,22 +506,31 @@ def cmd_start():
     mcp_url = f"{config.tunnel_url}/mcp"
     sse_url = f"{config.tunnel_url}/sse"
     print("\n" + "=" * 60)
-    print("  Simple MCP Server - Starting")
+    print("  Simple MCP Server - Started")
     print("=" * 60)
     print(f"  User:    {config.email}")
-    print(f"  MCP URL: {mcp_url}  (Streamable HTTP)")
-    print(f"  SSE URL: {sse_url}  (Legacy)")
+    print()
+    print("  Endpoints:")
+    print(f"    /mcp  {mcp_url}")
+    print(f"    /sse  {sse_url}")
+    print()
+    print("  +------------------------------------------------------+")
+    print("  |  HOW TO CONNECT YOUR AI CLIENT                       |")
+    print("  +------------------------------------------------------+")
+    print()
+    print("  1. Try /mcp first (recommended):")
+    print(f"     {mcp_url}")
+    print()
+    print("  2. If /mcp doesn't work, use /sse instead:")
+    print(f"     {sse_url}")
+    print()
+    print("  Note: ChatGPT currently requires /sse endpoint.")
+    print("        Claude.ai works with both endpoints.")
+    print()
     print("=" * 60)
-    print()
-    print("  Copy the MCP URL above to your MCP client:")
-    print()
-    print("  ChatGPT: Settings > Connectors > Add > paste URL")
-    print("  Claude:  Add MCP integration > paste URL")
-    print()
-    print("=" * 60)
-    print(f"  Log file: {LOG_FILE}")
-    print("  Use 'simple-mcp-server stop' to stop")
-    print("  Use 'simple-mcp-server status' to check status")
+    print(f"  Log:    {LOG_FILE}")
+    print("  Stop:   simple-mcp-server stop")
+    print("  Status: simple-mcp-server status")
     print("=" * 60 + "\n")
 
     # Daemonize on Unix, use subprocess on Windows
@@ -698,8 +707,10 @@ def cmd_status():
         print(f"  Status:   Configured")
         print(f"  Name:     {config.robot_name}")
         print(f"  URL:      {config.tunnel_url}")
-        print(f"  MCP:      {config.tunnel_url}/mcp  (Streamable HTTP)")
-        print(f"  SSE:      {config.tunnel_url}/sse  (Legacy)")
+        print()
+        print("  Endpoints (try /mcp first, use /sse if not working):")
+        print(f"    /mcp  {config.tunnel_url}/mcp")
+        print(f"    /sse  {config.tunnel_url}/sse")
     else:
         print("  Status:   Not configured")
 

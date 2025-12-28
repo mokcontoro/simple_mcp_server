@@ -2,9 +2,9 @@
 
 This module provides the legacy SSE transport endpoints (/sse, /message)
 for older MCP clients that don't support Streamable HTTP.
+Uses JWT for stateless token validation - tokens survive server restarts.
 """
 
-import time
 import logging
 
 from fastapi import APIRouter, Request, HTTPException
@@ -13,7 +13,7 @@ from starlette.responses import Response
 
 from mcp.server.sse import SseServerTransport
 
-from oauth.stores import access_tokens
+from oauth.jwt_utils import verify_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def forbidden_response(error_description: str) -> JSONResponse:
 def check_authorization(token_data: dict) -> bool:
     """Check if the token belongs to an authorized user (creator-only access)."""
     creator_user_id = _local_config.user_id if _local_config else None
-    connecting_user_id = token_data.get("user_id")
+    connecting_user_id = token_data.get("sub")  # JWT uses 'sub' for user ID
 
     if not creator_user_id:
         logger.info("[SSE] No creator configured, allowing access")
@@ -94,9 +94,11 @@ async def sse_endpoint(request: Request) -> Response:
         return unauthorized_response("Missing or invalid Authorization header")
 
     token = auth_header[7:]
-    token_data = access_tokens.get(token)
 
-    if not token_data or time.time() >= token_data.get("expires_at", 0):
+    # Verify JWT token (stateless - no storage lookup needed)
+    token_data = verify_access_token(token, issuer=_server_url)
+
+    if not token_data:
         logger.info("[SSE] Request rejected: invalid or expired token")
         return unauthorized_response("Invalid or expired token")
 
@@ -105,7 +107,7 @@ async def sse_endpoint(request: Request) -> Response:
     except HTTPException as e:
         return forbidden_response(e.detail)
 
-    logger.info(f"[SSE] Connection established for user: {token_data.get('user_email')}")
+    logger.info(f"[SSE] Connection established for user: {token_data.get('email')}")
     async with sse_transport.connect_sse(
         request.scope, request.receive, request._send
     ) as streams:
@@ -126,9 +128,11 @@ async def message_endpoint(request: Request) -> Response:
         return unauthorized_response("Missing or invalid Authorization header")
 
     token = auth_header[7:]
-    token_data = access_tokens.get(token)
 
-    if not token_data or time.time() >= token_data.get("expires_at", 0):
+    # Verify JWT token (stateless - no storage lookup needed)
+    token_data = verify_access_token(token, issuer=_server_url)
+
+    if not token_data:
         logger.info("[SSE] Message rejected: invalid or expired token")
         return unauthorized_response("Invalid or expired token")
 
@@ -137,7 +141,7 @@ async def message_endpoint(request: Request) -> Response:
     except HTTPException as e:
         return forbidden_response(e.detail)
 
-    logger.info(f"[SSE] Message received from user: {token_data.get('user_email')}")
+    logger.info(f"[SSE] Message received from user: {token_data.get('email')}")
     await sse_transport.handle_post_message(
         request.scope, request.receive, request._send
     )

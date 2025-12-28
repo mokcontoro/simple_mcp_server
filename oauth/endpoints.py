@@ -19,9 +19,14 @@ from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from oauth.stores import (
     registered_clients,
     authorization_codes,
-    access_tokens,
     pending_authorizations,
     authenticated_sessions,
+)
+from oauth.jwt_utils import (
+    create_access_token,
+    create_refresh_token,
+    verify_refresh_token,
+    ACCESS_TOKEN_EXPIRE_SECONDS,
 )
 from oauth.templates import LOGIN_PAGE, SIGNUP_PAGE, CONSENT_PAGE
 
@@ -417,20 +422,30 @@ async def token(
                 logger.info("[TOKEN] Token request failed: PKCE verification failed")
                 return JSONResponse({"error": "invalid_grant", "error_description": "PKCE verification failed"}, status_code=400)
 
-        # Generate tokens
-        new_access_token = secrets.token_urlsafe(32)
-        new_refresh_token = secrets.token_urlsafe(32)
-        expires_in = 3600  # 1 hour
+        # Generate JWT tokens (stateless - no storage needed)
+        user_id = auth_data.get("user_id") or ""
+        user_email = auth_data.get("user_email") or ""
+        scope = auth_data["scope"]
+        expires_in = ACCESS_TOKEN_EXPIRE_SECONDS  # 24 hours
 
-        access_tokens[new_access_token] = {
-            "client_id": client_id,
-            "scope": auth_data["scope"],
-            "user_id": auth_data.get("user_id"),
-            "user_email": auth_data.get("user_email"),
-            "created_at": int(time.time()),
-            "expires_at": int(time.time()) + expires_in
-        }
-        logger.info(f"[TOKEN] Access token created for user: {auth_data.get('user_email')}")
+        new_access_token = create_access_token(
+            user_id=user_id,
+            user_email=user_email,
+            client_id=client_id or "",
+            scope=scope,
+            issuer=_server_url,
+            expires_in=expires_in
+        )
+
+        new_refresh_token = create_refresh_token(
+            user_id=user_id,
+            user_email=user_email,
+            client_id=client_id or "",
+            scope=scope,
+            issuer=_server_url
+        )
+
+        logger.info(f"[TOKEN] JWT access token created for user: {user_email}")
 
         # Clean up used code
         del authorization_codes[code]
@@ -444,25 +459,45 @@ async def token(
         })
 
     elif grant_type == "refresh_token":
-        # Simple refresh - generate new tokens
-        new_access_token = secrets.token_urlsafe(32)
-        new_refresh_token = secrets.token_urlsafe(32)
-        expires_in = 3600
+        # Verify the refresh token (JWT-based, stateless)
+        token_data = verify_refresh_token(refresh_token, issuer=_server_url)
 
-        access_tokens[new_access_token] = {
-            "client_id": client_id,
-            "scope": "mcp:tools",
-            "created_at": int(time.time()),
-            "expires_at": int(time.time()) + expires_in
-        }
-        logger.info(f"[TOKEN] Refresh token issued for client: {client_id[:8] if client_id else 'none'}...")
+        if not token_data:
+            logger.info("[TOKEN] Refresh token failed: invalid or expired token")
+            return JSONResponse({"error": "invalid_grant", "error_description": "Invalid or expired refresh token"}, status_code=400)
+
+        # Extract user info from the verified token
+        user_id = token_data.get("sub", "")
+        user_email = token_data.get("email", "")
+        scope = token_data.get("scope", "mcp:tools")
+        expires_in = ACCESS_TOKEN_EXPIRE_SECONDS  # 24 hours
+
+        # Generate new JWT tokens
+        new_access_token = create_access_token(
+            user_id=user_id,
+            user_email=user_email,
+            client_id=client_id or "",
+            scope=scope,
+            issuer=_server_url,
+            expires_in=expires_in
+        )
+
+        new_refresh_token = create_refresh_token(
+            user_id=user_id,
+            user_email=user_email,
+            client_id=client_id or "",
+            scope=scope,
+            issuer=_server_url
+        )
+
+        logger.info(f"[TOKEN] JWT refresh successful for user: {user_email}, client: {client_id[:8] if client_id else 'none'}...")
 
         return JSONResponse({
             "access_token": new_access_token,
             "token_type": "Bearer",
             "expires_in": expires_in,
             "refresh_token": new_refresh_token,
-            "scope": "mcp:tools"
+            "scope": scope
         })
 
     return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)

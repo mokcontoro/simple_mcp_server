@@ -1,9 +1,9 @@
 """OAuth middleware for MCP endpoints.
 
 Validates Bearer tokens and enforces creator-only access control.
+Uses JWT for stateless token validation - tokens survive server restarts.
 """
 
-import time
 import logging
 
 from fastapi import Request
@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import load_config
-from oauth.stores import access_tokens
+from oauth.jwt_utils import verify_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,11 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
             )
 
         token = auth_header[7:]
-        token_data = access_tokens.get(token)
 
-        if not token_data or time.time() >= token_data.get("expires_at", 0):
+        # Verify JWT token (stateless - no storage lookup needed)
+        token_data = verify_access_token(token, issuer=server_url)
+
+        if not token_data:
             logger.info("[AUTH] Request rejected: invalid or expired token")
             return JSONResponse(
                 {"error": "unauthorized", "error_description": "Invalid or expired token"},
@@ -54,7 +56,7 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
 
         # Check authorization (creator-only access)
         creator_user_id = _config.user_id
-        connecting_user_id = token_data.get("user_id")
+        connecting_user_id = token_data.get("sub")  # JWT uses 'sub' for user ID
 
         if creator_user_id and connecting_user_id != creator_user_id:
             logger.warning(f"[AUTH] Access denied: user {connecting_user_id} is not the server creator")
@@ -63,5 +65,5 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
                 status_code=403
             )
 
-        logger.info(f"[AUTH] Request authorized: {token_data.get('user_email')}")
+        logger.info(f"[AUTH] Request authorized: {token_data.get('email')}")
         return await call_next(request)

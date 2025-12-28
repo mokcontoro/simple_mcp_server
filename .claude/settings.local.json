@@ -63,7 +63,10 @@
       "Bash(gh repo view:*)",
       "Bash(git remote add:*)",
       "Bash(git config:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(pipx runpip:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ]
   }
 }

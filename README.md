@@ -37,7 +37,8 @@ simple_mcp_server/
 └── oauth/               # OAuth module (optional)
     ├── endpoints.py     # OAuth routes
     ├── middleware.py    # Token validation
-    ├── stores.py        # In-memory token stores
+    ├── jwt_utils.py     # JWT token generation/validation
+    ├── stores.py        # Session stores (auth codes, pending requests)
     └── templates.py     # HTML templates
 ```
 
@@ -75,7 +76,22 @@ See [docs/project_plan.md](docs/project_plan.md) for architecture details.
 
 ## Connecting MCP Clients
 
-Use `https://{your-name}.robotmcp.ai/mcp` as the MCP server URL in ChatGPT or Claude.ai.
+Two endpoints are available:
+
+| Endpoint | Transport | Usage |
+|----------|-----------|-------|
+| `/mcp` | Streamable HTTP | Try first (recommended) |
+| `/sse` | Legacy SSE | Use if /mcp doesn't work |
+
+**Client Compatibility:**
+- **Claude.ai**: Works with both `/mcp` and `/sse`
+- **ChatGPT**: Currently requires `/sse` endpoint
+
+Example URLs:
+```
+https://{your-name}.robotmcp.ai/mcp  (try first)
+https://{your-name}.robotmcp.ai/sse  (fallback)
+```
 
 See [docs/workflow.md](docs/workflow.md) for connection flow diagrams.
 
@@ -102,6 +118,7 @@ For ros-mcp-server merge: replace `tools.py` and set `ENABLE_OAUTH=false`.
 
 ## Version History
 
+- **v1.13.0**: JWT tokens for stateless OAuth (tokens survive server restarts), endpoint compatibility docs
 - **v1.12.0**: Supabase centralized logging (replaces CloudWatch for security)
 - **v1.11.0**: AWS CloudWatch logging integration with JSON structured logs
 - **v1.10.0**: Comprehensive INFO-level logging for all MCP server activities
