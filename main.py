@@ -13,6 +13,7 @@ via Cloudflare tunnel. Railway is NOT involved in MCP traffic.
 """
 import os
 import logging
+from importlib.metadata import version as get_version
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -33,6 +34,12 @@ else:
     _public_env = _package_dir / ".env.public"
     if _public_env.exists():
         load_dotenv(_public_env)
+
+# Version from pyproject.toml (single source of truth)
+try:
+    VERSION = get_version("simple-mcp-server")
+except Exception:
+    VERSION = "0.0.0"  # Fallback for development
 
 # Environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -97,7 +104,7 @@ mcp_http_app = mcp.http_app(
 app = FastAPI(
     title="Simple MCP Server",
     description="A minimal MCP server with echo functionality and OAuth 2.1",
-    version="1.16.1",
+    version=VERSION,
     lifespan=mcp_http_app.lifespan,  # Required for FastMCP task group initialization
 )
 
@@ -142,7 +149,7 @@ async def root():
     """Root endpoint with server info."""
     response = {
         "name": "Simple MCP Server",
-        "version": "1.16.0",
+        "version": VERSION,
         "transport": MCP_TRANSPORT,
         "endpoints": {
             "streamable_http": "/mcp",

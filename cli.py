@@ -12,6 +12,7 @@ import shutil
 import signal
 import subprocess
 import sys
+from importlib.metadata import version as get_version
 from pathlib import Path
 
 import requests
@@ -32,7 +33,12 @@ else:
     if _public_env.exists():
         load_dotenv(_public_env)
 
-VERSION = "1.16.1"
+# Version from pyproject.toml (single source of truth)
+try:
+    VERSION = get_version("simple-mcp-server")
+except Exception:
+    VERSION = "0.0.0"  # Fallback for development
+
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
