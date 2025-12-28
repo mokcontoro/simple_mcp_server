@@ -8,3 +8,5 @@ PyJWT>=2.10.1
 cryptography>=44.0.0
 python-multipart>=0.0.17
 supabase>=2.25.0
+watchtower>=3.0.0
+boto3>=1.28.0

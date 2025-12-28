@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simple-mcp-server"
-version = "1.10.0"
+version = "1.11.0"
 description = "Modular MCP server with Streamable HTTP, optional OAuth 2.1, Supabase auth, Cloudflare tunnel, and creator-only access control"
 readme = "README.md"
 license = {text = "Proprietary - Copyright (c) 2025 Contoro. All rights reserved."}
@@ -30,6 +30,8 @@ dependencies = [
     "cryptography>=44.0.0",
     "python-multipart>=0.0.17",
     "supabase>=2.25.0",
+    "watchtower>=3.0.0",
+    "boto3>=1.28.0",
 ]
 
 [project.scripts]
