@@ -118,6 +118,7 @@ For ros-mcp-server merge: replace `tools.py` and set `ENABLE_OAUTH=false`.
 
 ## Version History
 
+- **v1.16.0**: Display version in CLI status output
 - **v1.15.0**: Shared member access - users added via dashboard can now connect to shared MCP servers
 - **v1.14.0**: Change default port from 8000 to 8766 (**BREAKING**: existing tunnels must be recreated with `simple-mcp-server logout && simple-mcp-server`)
 - **v1.13.0**: JWT tokens for stateless OAuth (tokens survive server restarts), endpoint compatibility docs

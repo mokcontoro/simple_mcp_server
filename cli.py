@@ -32,7 +32,7 @@ else:
     if _public_env.exists():
         load_dotenv(_public_env)
 
-VERSION = "1.5.0"
+VERSION = "1.16.0"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
@@ -681,7 +681,7 @@ def cmd_status():
     config = load_config()
 
     print("\n" + "=" * 50)
-    print("  Simple MCP Server Status")
+    print(f"  Simple MCP Server Status (v{VERSION})")
     print("=" * 50)
 
     # Account
