@@ -1,11 +1,15 @@
 """OAuth middleware for MCP endpoints.
 
-Validates Bearer tokens and enforces creator-only access control.
+Validates Bearer tokens and enforces access control.
+- Server creator always has access
+- Shared members (via server_members table) also have access
 Uses JWT for stateless token validation - tokens survive server restarts.
 """
 
 import logging
+import os
 
+import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -15,14 +19,32 @@ from oauth.jwt_utils import verify_access_token
 
 logger = logging.getLogger(__name__)
 
-# Load config for creator-only access check
+# Load config for access check
 _config = load_config()
+
+# Cloud service URL for access checks
+ROBOTMCP_CLOUD_URL = os.getenv("ROBOTMCP_CLOUD_URL", "https://app.robotmcp.ai")
 
 
 def get_server_url() -> str:
     """Get the server URL for OAuth metadata."""
-    import os
     return _config.tunnel_url or os.getenv("SERVER_URL", "https://simplemcpserver-production-e610.up.railway.app")
+
+
+async def check_shared_access(robot_name: str, user_id: str) -> bool:
+    """Check if user has shared access via robotmcp-cloud API."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{ROBOTMCP_CLOUD_URL}/api/check-access",
+                params={"robot_name": robot_name, "user_id": user_id}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("allowed", False)
+    except Exception as e:
+        logger.warning(f"[AUTH] Error checking shared access via cloud: {e}")
+    return False
 
 
 class MCPOAuthMiddleware(BaseHTTPMiddleware):
@@ -54,16 +76,23 @@ class MCPOAuthMiddleware(BaseHTTPMiddleware):
                 headers={"WWW-Authenticate": f'Bearer resource_metadata="{server_url}/.well-known/oauth-protected-resource"'}
             )
 
-        # Check authorization (creator-only access)
+        # Check authorization (creator or shared member)
         creator_user_id = _config.user_id
         connecting_user_id = token_data.get("sub")  # JWT uses 'sub' for user ID
 
-        if creator_user_id and connecting_user_id != creator_user_id:
-            logger.warning(f"[AUTH] Access denied: user {connecting_user_id} is not the server creator")
-            return JSONResponse(
-                {"error": "forbidden", "error_description": "Access denied: not authorized for this server"},
-                status_code=403
-            )
+        # Fast path: creator always has access
+        if connecting_user_id == creator_user_id:
+            logger.info(f"[AUTH] Request authorized (owner): {token_data.get('email')}")
+            return await call_next(request)
 
-        logger.info(f"[AUTH] Request authorized: {token_data.get('email')}")
-        return await call_next(request)
+        # Check if user is a shared member via robotmcp-cloud API
+        if _config.robot_name:
+            if await check_shared_access(_config.robot_name, connecting_user_id):
+                logger.info(f"[AUTH] Request authorized (shared member): {token_data.get('email')}")
+                return await call_next(request)
+
+        logger.warning(f"[AUTH] Access denied: user {connecting_user_id} is not authorized")
+        return JSONResponse(
+            {"error": "forbidden", "error_description": "Access denied: not authorized for this server"},
+            status_code=403
+        )
