@@ -83,10 +83,8 @@ from oauth.middleware import MCPOAuthMiddleware
 # (We need the lifespan from mcp_http_app for FastAPI)
 #
 # Endpoint compatibility:
-#   - Claude.ai: Use /mcp (Streamable HTTP) or /sse - both work
-#   - ChatGPT:   Use /sse only - ChatGPT's MCP client has issues with
-#                Streamable HTTP (sends GET expecting SSE stream, but
-#                FastMCP returns 200 OK instead of proper SSE)
+#   - /mcp (Streamable HTTP): Recommended for all clients
+#   - /sse (Legacy SSE): Fallback if /mcp doesn't work
 #
 mcp_http_app = mcp.http_app(
     path="/",  # Route at root of mounted app
@@ -151,8 +149,8 @@ async def root():
             "sse": "/sse",
         },
         "client_compatibility": {
-            "claude": "/mcp or /sse",
-            "chatgpt": "/sse (required - /mcp has compatibility issues)",
+            "recommended": "/mcp",
+            "fallback": "/sse (use if /mcp doesn't work)",
         },
         "tools": ["echo", "ping"],
         "oauth_enabled": ENABLE_OAUTH

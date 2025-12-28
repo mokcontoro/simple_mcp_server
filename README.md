@@ -84,13 +84,13 @@ Two endpoints are available:
 | `/sse` | Legacy SSE | Use if /mcp doesn't work |
 
 **Client Compatibility:**
-- **Claude.ai**: Works with both `/mcp` and `/sse`
-- **ChatGPT**: Currently requires `/sse` endpoint
+- **Claude.ai**: Works with `/mcp` (recommended)
+- **ChatGPT**: Works with `/mcp` (recommended)
+- **Legacy clients**: Use `/sse` if `/mcp` doesn't work
 
-Example URLs:
+Example URL:
 ```
-https://{your-name}.robotmcp.ai/mcp  (try first)
-https://{your-name}.robotmcp.ai/sse  (fallback)
+https://{your-name}.robotmcp.ai/mcp
 ```
 
 See [docs/workflow.md](docs/workflow.md) for connection flow diagrams.

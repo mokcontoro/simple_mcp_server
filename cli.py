@@ -524,7 +524,7 @@ def cmd_start():
     print("  2. If /mcp doesn't work, use /sse instead:")
     print(f"     {sse_url}")
     print()
-    print("  Note: ChatGPT currently requires /sse endpoint.")
+    print("  Note: Use /sse if /mcp doesn't work with your client.")
     print("        Claude.ai works with both endpoints.")
     print()
     print("=" * 60)
@@ -821,7 +821,7 @@ QUICK START:
     2. Log in via browser (opens automatically)
     3. Select existing server or enter a new robot name (e.g., 'myrobot')
     4. Server starts in background at https://myrobot.robotmcp.ai
-    5. Copy the MCP URL to ChatGPT/Claude (or SSE URL for legacy clients)
+    5. Copy the MCP URL to ChatGPT/Claude (use SSE URL if MCP doesn't work)
 
 For more information, see: https://github.com/mokcontoro/simple_mcp_server
 """)
