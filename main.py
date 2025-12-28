@@ -97,7 +97,7 @@ mcp_http_app = mcp.http_app(
 app = FastAPI(
     title="Simple MCP Server",
     description="A minimal MCP server with echo functionality and OAuth 2.1",
-    version="1.16.0",
+    version="1.16.1",
     lifespan=mcp_http_app.lifespan,  # Required for FastMCP task group initialization
 )
 

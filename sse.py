@@ -14,6 +14,7 @@ from starlette.responses import Response
 from mcp.server.sse import SseServerTransport
 
 from oauth.jwt_utils import verify_access_token
+from oauth.middleware import check_shared_access
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +65,8 @@ def forbidden_response(error_description: str) -> JSONResponse:
     )
 
 
-def check_authorization(token_data: dict) -> bool:
-    """Check if the token belongs to an authorized user (creator-only access)."""
+async def check_authorization(token_data: dict) -> bool:
+    """Check if the token belongs to an authorized user (owner or shared member)."""
     creator_user_id = _local_config.user_id if _local_config else None
     connecting_user_id = token_data.get("sub")  # JWT uses 'sub' for user ID
 
@@ -73,14 +74,23 @@ def check_authorization(token_data: dict) -> bool:
         logger.info("[SSE] No creator configured, allowing access")
         return True
 
-    if connecting_user_id != creator_user_id:
-        logger.warning(f"[SSE] Access denied: user {connecting_user_id} is not the server creator")
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: not authorized for this server"
-        )
+    # Fast path: owner always has access
+    if connecting_user_id == creator_user_id:
+        logger.info(f"[SSE] Request authorized (owner): {token_data.get('email')}")
+        return True
 
-    return True
+    # Check if user is a shared member via robotmcp-cloud API
+    robot_name = _local_config.robot_name if _local_config else None
+    if robot_name:
+        if await check_shared_access(robot_name, connecting_user_id):
+            logger.info(f"[SSE] Request authorized (shared member): {token_data.get('email')}")
+            return True
+
+    logger.warning(f"[SSE] Access denied: user {connecting_user_id} is not authorized")
+    raise HTTPException(
+        status_code=403,
+        detail="Access denied: not authorized for this server"
+    )
 
 
 @router.get("/sse")
@@ -103,7 +113,7 @@ async def sse_endpoint(request: Request) -> Response:
         return unauthorized_response("Invalid or expired token")
 
     try:
-        check_authorization(token_data)
+        await check_authorization(token_data)
     except HTTPException as e:
         return forbidden_response(e.detail)
 
@@ -137,7 +147,7 @@ async def message_endpoint(request: Request) -> Response:
         return unauthorized_response("Invalid or expired token")
 
     try:
-        check_authorization(token_data)
+        await check_authorization(token_data)
     except HTTPException as e:
         return forbidden_response(e.detail)
 

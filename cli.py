@@ -32,7 +32,7 @@ else:
     if _public_env.exists():
         load_dotenv(_public_env)
 
-VERSION = "1.16.0"
+VERSION = "1.16.1"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
