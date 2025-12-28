@@ -41,7 +41,7 @@ SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 # Transport configuration (aligned with ros-mcp-server)
 MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
 MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
-MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
+MCP_PORT = int(os.getenv("MCP_PORT", "8766"))
 
 # OAuth toggle - set to "false" for ros-mcp-server mode (no auth)
 ENABLE_OAUTH = os.getenv("ENABLE_OAUTH", "true").lower() == "true"
@@ -99,7 +99,7 @@ mcp_http_app = mcp.http_app(
 app = FastAPI(
     title="Simple MCP Server",
     description="A minimal MCP server with echo functionality and OAuth 2.1",
-    version="1.13.0",
+    version="1.14.0",
     lifespan=mcp_http_app.lifespan,  # Required for FastMCP task group initialization
 )
 
@@ -144,7 +144,7 @@ async def root():
     """Root endpoint with server info."""
     response = {
         "name": "Simple MCP Server",
-        "version": "1.13.0",
+        "version": "1.14.0",
         "transport": MCP_TRANSPORT,
         "endpoints": {
             "streamable_http": "/mcp",

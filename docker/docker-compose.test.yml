@@ -10,4 +10,4 @@ services:
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - SERVER_URL=${SERVER_URL}
     ports:
-      - "8000:8000"
+      - "8766:8766"

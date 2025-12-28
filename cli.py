@@ -115,7 +115,7 @@ def check_cloudflared_process() -> bool:
 
 
 def is_server_running() -> bool:
-    """Check if MCP server is already running on port 8000."""
+    """Check if MCP server is already running on port 8766."""
     if platform.system() == "Windows":
         try:
             result = subprocess.run(
@@ -124,14 +124,14 @@ def is_server_running() -> bool:
                 text=True
             )
             for line in result.stdout.split('\n'):
-                if ":8000" in line and "LISTENING" in line:
+                if ":8766" in line and "LISTENING" in line:
                     return True
         except Exception:
             pass
     else:
         try:
             result = subprocess.run(
-                ["lsof", "-ti", ":8000"],
+                ["lsof", "-ti", ":8766"],
                 capture_output=True,
                 text=True
             )
@@ -499,8 +499,8 @@ def cmd_start():
     print("\nCleaning up old processes...")
     if kill_cloudflared_processes():
         print("  - Stopped old cloudflared processes")
-    if kill_processes_on_port(8000):
-        print("  - Stopped old server on port 8000")
+    if kill_processes_on_port(8766):
+        print("  - Stopped old server on port 8766")
 
     # Print startup banner BEFORE daemonizing (so user sees it)
     mcp_url = f"{config.tunnel_url}/mcp"
@@ -604,7 +604,7 @@ def _run_server(config):
     tunnel_process = run_cloudflared_tunnel(config.tunnel_token)
 
     try:
-        uvicorn.run("main:app", host="0.0.0.0", port=8000, log_level="info")
+        uvicorn.run("main:app", host="0.0.0.0", port=8766, log_level="info")
     finally:
         if tunnel_process:
             tunnel_process.terminate()
@@ -622,7 +622,7 @@ def cmd_stop():
         print("  - Daemon stopped")
 
     # Also clean up any orphaned processes
-    stopped_server = kill_processes_on_port(8000)
+    stopped_server = kill_processes_on_port(8766)
     stopped_tunnel = kill_cloudflared_processes()
 
     if stopped_daemon or stopped_server or stopped_tunnel:
@@ -721,7 +721,7 @@ def cmd_status():
         print(f"  Status:   Running (PID: {pid})")
         print(f"  Log:      {LOG_FILE}")
     elif is_server_running():
-        print("  Status:   Running on port 8000 (not managed)")
+        print("  Status:   Running on port 8766 (not managed)")
     else:
         print("  Status:   Not running")
 
@@ -769,7 +769,7 @@ def cmd_logout():
 
     # Stop server first
     print("Stopping server...")
-    kill_processes_on_port(8000)
+    kill_processes_on_port(8766)
     kill_cloudflared_processes()
 
     # Clear config

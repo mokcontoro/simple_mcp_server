@@ -277,7 +277,7 @@ net stop cloudflared
 cloudflared service uninstall
 ```
 
-### Port 8000 Already in Use
+### Port 8766 Already in Use
 
 The CLI automatically cleans up old processes. If issues persist:
 
@@ -286,7 +286,7 @@ The CLI automatically cleans up old processes. If issues persist:
 python cli.py stop
 
 # Or manually find and kill
-netstat -ano | findstr :8000
+netstat -ano | findstr :8766
 taskkill /F /PID <pid>
 ```
 
