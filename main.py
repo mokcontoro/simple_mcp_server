@@ -34,16 +34,6 @@ else:
     if _public_env.exists():
         load_dotenv(_public_env)
 
-# Load local config first (needed for robot_name in logging)
-local_config = load_config()
-
-# Initialize logging with CloudWatch support (uses robot_name for log group)
-from logging_config import setup_logging
-setup_logging(robot_name=local_config.robot_name)
-logger = logging.getLogger(__name__)
-
-logger.info(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email: {local_config.email}")
-
 # Environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
@@ -60,6 +50,20 @@ ENABLE_OAUTH = os.getenv("ENABLE_OAUTH", "true").lower() == "true"
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_ANON_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+# Load local config (needed for robot_name and user_id in logging)
+local_config = load_config()
+
+# Initialize logging with Supabase support (centralized log collection)
+from logging_config import setup_logging
+setup_logging(
+    robot_name=local_config.robot_name,
+    user_id=local_config.user_id,
+    supabase_client=supabase,
+)
+logger = logging.getLogger(__name__)
+
+logger.info(f"[STARTUP] Config loaded - valid: {local_config.is_valid()}, email: {local_config.email}")
 
 # SERVER_URL: Use tunnel URL if available (for local MCP server), otherwise fallback to env/default
 # This is critical for OAuth - MCP clients need to authenticate on THIS server, not Railway
@@ -88,7 +92,7 @@ mcp_http_app = mcp.http_app(
 app = FastAPI(
     title="Simple MCP Server",
     description="A minimal MCP server with echo functionality and OAuth 2.1",
-    version="1.11.0",
+    version="1.12.0",
     lifespan=mcp_http_app.lifespan,  # Required for FastMCP task group initialization
 )
 
@@ -133,7 +137,7 @@ async def root():
     """Root endpoint with server info."""
     response = {
         "name": "Simple MCP Server",
-        "version": "1.11.0",
+        "version": "1.12.0",
         "transport": MCP_TRANSPORT,
         "mcp_endpoint": "/mcp",
         "legacy_sse_endpoint": "/sse",

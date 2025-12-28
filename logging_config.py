@@ -1,32 +1,33 @@
-"""Centralized logging configuration with AWS CloudWatch support.
+"""Centralized logging configuration with Supabase support.
 
 This module provides:
-- JSONFormatter for structured logging (CloudWatch Insights compatible)
-- CloudWatch handler via watchtower (auto-enabled when AWS creds available)
-- Fallback to stderr-only when AWS credentials are missing
+- JSONFormatter for structured logging
+- SupabaseHandler for centralized log collection (batched)
+- Fallback to stderr-only when Supabase is unavailable
 """
 
+import atexit
 import json
 import logging
 import os
 import re
-import socket
 import sys
+import threading
+import time
 from datetime import datetime, timezone
+from queue import Queue, Empty
+from typing import Optional
 
 
 class JSONFormatter(logging.Formatter):
-    """JSON formatter for structured logging.
+    """JSON formatter for structured logging."""
 
-    Extracts [TAG] from log messages and creates structured JSON output
-    compatible with CloudWatch Insights queries.
-    """
-
-    def __init__(self, robot_name: str = None):
+    def __init__(self, robot_name: str = None, user_id: str = None):
         super().__init__()
         self.robot_name = robot_name or "unknown"
+        self.user_id = user_id
 
-    def format(self, record: logging.LogRecord) -> str:
+    def format(self, record: logging.LogRecord) -> dict:
         # Extract tag from message if present: [TAG] message
         tag = None
         message = record.getMessage()
@@ -37,25 +38,23 @@ class JSONFormatter(logging.Formatter):
 
         # Build structured log entry
         log_entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "robot_name": self.robot_name,
+            "user_id": self.user_id,
             "level": record.levelname,
             "tag": tag,
             "message": message,
-            "robot_name": self.robot_name,
             "module": record.module,
-            "function": record.funcName,
-            "line": record.lineno,
+            "extra": {
+                "function": record.funcName,
+                "line": record.lineno,
+            }
         }
 
         # Add exception info if present
         if record.exc_info:
-            log_entry["exception"] = self.formatException(record.exc_info)
+            log_entry["extra"]["exception"] = self.formatException(record.exc_info)
 
-        # Add any extra fields
-        if hasattr(record, 'extra'):
-            log_entry["extra"] = record.extra
-
-        return json.dumps(log_entry, ensure_ascii=False)
+        return log_entry
 
 
 class PlainFormatter(logging.Formatter):
@@ -68,21 +67,119 @@ class PlainFormatter(logging.Formatter):
         )
 
 
-def setup_logging(robot_name: str = None) -> logging.Logger:
-    """Configure logging with optional CloudWatch integration.
+class SupabaseHandler(logging.Handler):
+    """Logging handler that batches logs and sends to Supabase.
+
+    Logs are buffered and sent in batches to reduce database writes.
+    Flush occurs every flush_interval seconds or when batch_size is reached.
+    """
+
+    def __init__(
+        self,
+        supabase_client,
+        robot_name: str,
+        user_id: str = None,
+        batch_size: int = 20,
+        flush_interval: float = 10.0,
+    ):
+        super().__init__()
+        self.supabase = supabase_client
+        self.robot_name = robot_name
+        self.user_id = user_id
+        self.batch_size = batch_size
+        self.flush_interval = flush_interval
+
+        self._queue: Queue = Queue()
+        self._shutdown = threading.Event()
+        self._flush_thread = threading.Thread(target=self._flush_worker, daemon=True)
+        self._flush_thread.start()
+
+        # Register cleanup on exit
+        atexit.register(self.close)
+
+    def emit(self, record: logging.LogRecord):
+        """Queue a log record for batched sending."""
+        try:
+            # Format the record
+            if isinstance(self.formatter, JSONFormatter):
+                log_entry = self.formatter.format(record)
+            else:
+                log_entry = {
+                    "robot_name": self.robot_name,
+                    "user_id": self.user_id,
+                    "level": record.levelname,
+                    "tag": None,
+                    "message": record.getMessage(),
+                    "module": record.module,
+                    "extra": {}
+                }
+
+            self._queue.put(log_entry)
+
+            # Flush immediately if batch size reached
+            if self._queue.qsize() >= self.batch_size:
+                self._flush()
+
+        except Exception:
+            self.handleError(record)
+
+    def _flush_worker(self):
+        """Background thread that flushes logs periodically."""
+        while not self._shutdown.is_set():
+            time.sleep(self.flush_interval)
+            if not self._queue.empty():
+                self._flush()
+
+    def _flush(self):
+        """Send queued logs to Supabase."""
+        logs = []
+        try:
+            while len(logs) < self.batch_size * 2:  # Don't flush too many at once
+                try:
+                    logs.append(self._queue.get_nowait())
+                except Empty:
+                    break
+
+            if logs and self.supabase:
+                self.supabase.table("logs").insert(logs).execute()
+
+        except Exception as e:
+            # Log to stderr if Supabase fails (avoid recursion)
+            print(f"[WARNING] Failed to send logs to Supabase: {e}", file=sys.stderr)
+
+    def close(self):
+        """Flush remaining logs and stop the background thread."""
+        self._shutdown.set()
+        self._flush()  # Final flush
+        super().close()
+
+
+# Global reference to Supabase handler for flushing
+_supabase_handler: Optional[SupabaseHandler] = None
+
+
+def setup_logging(
+    robot_name: str = None,
+    user_id: str = None,
+    supabase_client = None,
+) -> logging.Logger:
+    """Configure logging with optional Supabase integration.
 
     Args:
-        robot_name: Robot/device name for log group naming.
-                   Falls back to 'unknown' if not provided.
+        robot_name: Robot/device name for log identification.
+        user_id: User ID for log ownership (from config).
+        supabase_client: Supabase client instance for remote logging.
 
     Returns:
         Configured root logger.
 
     Behavior:
         - Always adds stderr handler for local debugging
-        - Adds CloudWatch handler if AWS credentials are available
-        - Graceful fallback if CloudWatch setup fails
+        - Adds Supabase handler if client is provided
+        - Graceful fallback if Supabase setup fails
     """
+    global _supabase_handler
+
     robot_name = robot_name or os.getenv("ROBOT_NAME", "unknown")
 
     # Get root logger and clear existing handlers
@@ -96,73 +193,36 @@ def setup_logging(robot_name: str = None) -> logging.Logger:
     stderr_handler.setFormatter(PlainFormatter())
     root_logger.addHandler(stderr_handler)
 
-    # Try to add CloudWatch handler if AWS credentials available
-    cloudwatch_enabled = _setup_cloudwatch_handler(root_logger, robot_name)
+    # Try to add Supabase handler if client provided
+    supabase_enabled = False
+    if supabase_client:
+        try:
+            _supabase_handler = SupabaseHandler(
+                supabase_client=supabase_client,
+                robot_name=robot_name,
+                user_id=user_id,
+                batch_size=20,
+                flush_interval=10.0,
+            )
+            _supabase_handler.setLevel(logging.INFO)
+            _supabase_handler.setFormatter(JSONFormatter(robot_name, user_id))
+            root_logger.addHandler(_supabase_handler)
+            supabase_enabled = True
+        except Exception as e:
+            print(f"[WARNING] Supabase logging setup failed: {e}", file=sys.stderr)
 
     # Log startup info
     logger = logging.getLogger(__name__)
-    if cloudwatch_enabled:
-        logger.info(f"[STARTUP] CloudWatch logging enabled: /mcp/{robot_name}")
+    if supabase_enabled:
+        logger.info(f"[STARTUP] Supabase logging enabled for robot: {robot_name}")
     else:
-        logger.info("[STARTUP] CloudWatch logging disabled (no AWS credentials)")
+        logger.info("[STARTUP] Supabase logging disabled (no client)")
 
     return root_logger
 
 
-def _setup_cloudwatch_handler(logger: logging.Logger, robot_name: str) -> bool:
-    """Attempt to set up CloudWatch handler.
-
-    Returns:
-        True if CloudWatch handler was successfully added, False otherwise.
-    """
-    # Check for AWS credentials
-    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
-    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-    aws_region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION"))
-
-    if not all([aws_access_key, aws_secret_key, aws_region]):
-        return False
-
-    try:
-        from watchtower import CloudWatchLogHandler
-        import boto3
-
-        # Create boto3 client with explicit credentials
-        logs_client = boto3.client(
-            'logs',
-            region_name=aws_region,
-            aws_access_key_id=aws_access_key,
-            aws_secret_access_key=aws_secret_key
-        )
-
-        # Generate log stream name: date-hostname
-        hostname = socket.gethostname()
-        log_stream = f"{datetime.now().strftime('%Y-%m-%d')}-{hostname}"
-
-        # Create CloudWatch handler
-        cloudwatch_handler = CloudWatchLogHandler(
-            log_group_name=f"/mcp/{robot_name}",
-            log_stream_name=log_stream,
-            boto3_client=logs_client,
-            use_queues=True,  # Async sending for performance
-            create_log_group=True,
-            create_log_stream=True,
-        )
-        cloudwatch_handler.setLevel(logging.INFO)
-        cloudwatch_handler.setFormatter(JSONFormatter(robot_name))
-
-        logger.addHandler(cloudwatch_handler)
-        return True
-
-    except ImportError:
-        # watchtower not installed
-        logging.getLogger(__name__).warning(
-            "[STARTUP] watchtower not installed, CloudWatch logging unavailable"
-        )
-        return False
-    except Exception as e:
-        # Any AWS/CloudWatch error - log and continue without CloudWatch
-        logging.getLogger(__name__).warning(
-            f"[STARTUP] CloudWatch setup failed: {e}"
-        )
-        return False
+def flush_logs():
+    """Manually flush any pending logs to Supabase."""
+    global _supabase_handler
+    if _supabase_handler:
+        _supabase_handler._flush()
