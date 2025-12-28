@@ -218,6 +218,14 @@ def setup_logging(
     else:
         logger.info("[STARTUP] Supabase logging disabled (no client)")
 
+    # Debug: Print logging configuration
+    print(f"[DEBUG] Root logger: handlers={root_logger.handlers}, level={root_logger.level}", file=sys.stderr, flush=True)
+    print(f"[DEBUG] Supabase logging: {'enabled' if supabase_enabled else 'disabled'}", file=sys.stderr, flush=True)
+
+    # Verify tools logger will work
+    tools_logger = logging.getLogger('tools')
+    print(f"[DEBUG] tools logger: handlers={tools_logger.handlers}, propagate={tools_logger.propagate}, effective_level={tools_logger.getEffectiveLevel()}", file=sys.stderr, flush=True)
+
     return root_logger
 
 

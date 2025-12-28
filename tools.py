@@ -5,10 +5,14 @@ For ros-mcp-server merge, replace these with ROS-specific tools.
 """
 
 import logging
+import sys
 
 from fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
+
+# Debug: Print logger info at import time
+print(f"[DEBUG] tools.py imported, logger={logger.name}, effective_level={logger.getEffectiveLevel()}", file=sys.stderr, flush=True)
 
 # Create the FastMCP server instance
 mcp = FastMCP("simple-mcp-server")
@@ -24,6 +28,7 @@ def echo(message: str) -> str:
     Returns:
         The echoed message with a prefix
     """
+    print(f"[DEBUG] echo tool function called with: {message}", file=sys.stderr, flush=True)
     logger.info(f"[TOOL] echo invoked, message length: {len(message)}")
     return f"Echo: {message}"
 
@@ -35,5 +40,6 @@ def ping() -> str:
     Returns:
         A pong response
     """
+    print("[DEBUG] ping tool function called", file=sys.stderr, flush=True)
     logger.info("[TOOL] ping invoked")
     return "pong from Mok's computer"
